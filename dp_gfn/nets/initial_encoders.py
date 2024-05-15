@@ -4,6 +4,32 @@ import torch.nn.functional as F
 
 from dp_gfn.nets.encoders import MLP
 
+
+class StateEncoder(nn.Module):
+    def __init__(self, num_variables, num_tags, word_embedding_dim=300, node_embedding_dim=768, label_embedding_dim=128, hidden_layers=[512, 256], activation=None, share_word_representations=True):
+        super(StateEncoder, self).__init__()
+        self.num_variables = num_variables
+        self.indices = torch.arange(0, num_variables * 2)
+        
+        # TODO: Implement share weight of mlp_(head|dep) between node_encoder and label_scorer
+        # [mlp_node_head, mlp_node_dep, (mlp_label_head, mlp_label_dep)] 
+        # self.num_mlps = 2 if share_word_representations else 4
+        # self.mlps = [MLP(word_embedding_dim, node_embedding_dim, hidden_layers, activation) for _ in range(self.num_mlps)] 
+        self.mlp_head = MLP(word_embedding_dim, node_embedding_dim, hidden_layers, activation)
+        self.mlp_dep = MLP(word_embedding_dim, node_embedding_dim, hidden_layers, activation)
+       
+        # num_embeddings = len( {labels} v {edge-less} ) 
+        self.label_embedding = nn.Embedding(num_tags + 1, label_embedding_dim)  
+         
+    def forward(self, word_embeddings, adjacency):
+        wh_embeddings = self.mlp_head(word_embeddings)
+        wd_embeddings = self.mlp_dep(word_embeddings)
+        label_embeddings = self.label_embedding(adjacency)
+        
+        state_embeddings = torch.cat([wh_embeddings, wd_embeddings, label_embeddings], dim=-1)    
+         
+        return state_embeddings
+        
         
 class PrefEncoder(nn.Module):
     """_summary_
