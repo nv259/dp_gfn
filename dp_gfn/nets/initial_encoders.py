@@ -89,24 +89,22 @@ class PrefEncoder(nn.Module):
         super(PrefEncoder, self).__init__()
 
         # Load pretrain language model
-        self.pretrained_path = pretrained_path
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_path)
-        self.model = AutoModel.from_pretrained(pretrained_path)
-        if trainable_embeddings:
-            self.model_embedding.weight.requires_grad = True
-        else:
-            self.model_embedding.weight.requires_grad = False
-
+        self.bert_model = AutoModel.from_pretrained(pretrained_path)
+        if trainable_embeddings is False:
+            for param in self.bert_model.parameters():
+                param.requires_grad = False 
+        
         # Store auxiliary parameters
-        self.model_embedding = self.model.embeddings.word_embeddings
+        self.model_embedding = self.bert_model.embeddings.word_embeddings
         self.agg_func = agg_func
         self.max_word_length = max_word_length
 
     def forward(self, batch):
         tokens = self.tokenizer(
-            batch, return_tensors="pt", padding=True, truncation=True
+            batch, return_tensors="pt", padding='max_length', truncation=True
         )
-        token_embeddings = self.model(**tokens).last_hidden_state
+        token_embeddings = self.bert_model(**tokens).last_hidden_state
 
         word_embeddings = batch_token_embeddings_to_batch_word_embeddings(
             tokens=tokens,
