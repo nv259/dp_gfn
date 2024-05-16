@@ -149,12 +149,14 @@ class LabelScorer(nn.Module):
         input_dim=768,
         intermediate_dim=128,
         hidden_layers=[512, 256],
-        activation=None,
+        dropout_rate=0.1,
+        activation="ReLU",
     ):
         super(LabelScorer, self).__init__()
+        self.num_tags = num_tags
 
-        self.mlp_head = MLP(input_dim, intermediate_dim, hidden_layers, activation)
-        self.mlp_dep = MLP(input_dim, intermediate_dim, hidden_layers, activation)
+        self.mlp_head = MLP(input_dim, intermediate_dim, hidden_layers, dropout_rate, activation)
+        self.mlp_dep = MLP(input_dim, intermediate_dim, hidden_layers, dropout_rate, activation)
 
         W = torch.randn(num_tags, intermediate_dim, intermediate_dim)
         self.W = nn.Parameter(W)
@@ -169,26 +171,27 @@ class LabelScorer(nn.Module):
         nn.init.xavier_uniform_(self.Wd)
 
         b = torch.randn(num_tags)
-        self.b = nn.Parameter(b)
-        nn.init.xavier_uniform_(self.b)
-
+        self.b = nn.Parameter(b) 
+        
     def forward(self, heads, deps) -> torch.Tensor:
-        # Map head words and dep words to corresponding intermediate representation
+        # Map head-words and dep-words to corresponding intermediate representation
         lab_heads = self.mlp_head(heads)
         lab_deps = self.mlp_dep(deps)
+        
+        # Biaffine layer
+        head_scores = lab_heads @ self.Wh
+        dep_scores = lab_deps @ self.Wd
 
         # Reshape D_L and H_L for biaffine equation
-        lab_heads = lab_heads.unsqueeze(1)  # [bs, 1, label_emb_dim]
-        lab_heads = lab_heads.unsqueeze(1)  # [bs, 1, 1, label_emb_dim]
-        lab_deps = lab_deps.unsqueeze(1)
-        lab_deps = lab_deps.unsqueeze(1)
+        while lab_heads.dim() <= self.W.dim():
+            lab_heads = lab_heads.unsqueeze(1)
+            lab_deps = lab_deps.unsqueeze(1)
 
-        # Biaffine layer
-        lab_scores = (
-            lab_deps @ self.W @ lab_heads.transpose(-1, -2)
-            + lab_heads @ self.Wh
-            + lab_deps @ self.Wd
-            + self.b
+        arc_scores = torch.reshape(
+            lab_deps @ self.W @ lab_heads.transpose(-1, -2),
+            (heads.shape[0], self.num_tags)
         )
+        
+        lab_scores = arc_scores + head_scores + dep_scores + self.b
 
         return lab_scores
