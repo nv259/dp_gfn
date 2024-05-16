@@ -20,8 +20,7 @@ def token_embeddings_to_word_embeddings(tokens, token_embeddings, batch_idx, agg
             elif agg_func == 'last':
                 word_embedding = token_embeddings[batch_idx, end-1]
             else:
-                agg_func = getattr(torch, agg_func)
-                word_embedding = agg_func(token_embeddings[batch_idx, start:end], dim=0)
+                word_embedding = getattr(torch, agg_func)(token_embeddings[batch_idx, start:end], dim=0)
         except:
             raise NotImplementedError
         
