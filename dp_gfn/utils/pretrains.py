@@ -14,18 +14,16 @@ def token_embeddings_to_word_embeddings(tokens, token_embeddings, batch_idx, agg
         
         start, end = tokens.word_to_tokens(batch_idx, word_idx)
         
-        if agg_func == 'mean':
-            word_embedding = torch.mean(token_embeddings[batch_idx, start:end], dim=0)
-        elif agg_func == 'max':
-            word_embedding = torch.max(token_embeddings[batch_idx, start:end], dim=0)
-        elif agg_func == 'sum':
-            word_embedding = torch.sum(token_embeddings[batch_idx, start:end], dim=0)
-        elif agg_func == 'first':
-            word_embedding = token_embeddings[batch_idx, start]
-        elif agg_func == 'last':
-            word_embedding = token_embeddings[batch_idx, end-1]
-        else:
-            raise ValueError('not a valid aggregation function')
+        try:
+            if agg_func == 'first':
+                word_embedding = token_embeddings[batch_idx, start]
+            elif agg_func == 'last':
+                word_embedding = token_embeddings[batch_idx, end-1]
+            else:
+                agg_func = getattr(torch, agg_func)
+                word_embedding = agg_func(token_embeddings[batch_idx, start:end], dim=0)
+        except:
+            raise NotImplementedError
         
         word_embeddings.append(word_embedding)
 
