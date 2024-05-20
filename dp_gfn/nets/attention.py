@@ -43,7 +43,6 @@ class LinearMultiHeadAttention(nn.Module):
         d_k: int,
         d_v: Optional[int] = None,
         d_model: Optional[int] = None,
-        dropout: float = 0.1,
         eps: float = 1e-6,
     ):
         super().__init__()
@@ -52,7 +51,6 @@ class LinearMultiHeadAttention(nn.Module):
         self.d_k = d_k
         self.d_v = d_v or d_k
         self.d_model = d_model or d_k * num_heads
-        self.dropout = dropout
         self.eps = eps
 
         self.query_linear = nn.Linear(input_size, self.d_k * self.num_heads)
@@ -63,7 +61,7 @@ class LinearMultiHeadAttention(nn.Module):
         self.projection = lambda x: F.elu(x) + 1.0
 
     def forward(self, query, key, value, mask=None):
-        if mask:
+        if mask is not None:
             raise NotImplementedError
 
         # Map query, key & value then project query & key
@@ -72,9 +70,9 @@ class LinearMultiHeadAttention(nn.Module):
         value = self.value_linear(value)                    # bs x target x (d_v * num_heads)
 
         # Reshape query, key & value to [bs, (source|target), num_heads, (d_k|d_v)]
-        query = query.view(query.size(0), -1, self.num_heads, self.d_k)
-        key = key.view(key.size(0), -1, self.num_heads, self.d_k)
-        value = value.view(value.size(0), -1, self.num_heads, self.d_v)
+        query = query.reshape(query.size(0), -1, self.num_heads, self.d_k)
+        key = key.reshape(key.size(0), -1, self.num_heads, self.d_k)
+        value = value.reshape(value.size(0), -1, self.num_heads, self.d_v)
 
         key_values = torch.einsum("...thd,...thk->...hkd", key, value)
         normalizer = 1.0 / (
@@ -85,7 +83,7 @@ class LinearMultiHeadAttention(nn.Module):
             "...thd,...hkd,...th->...thk", query, key_values, normalizer
         )
 
-        attn = attn.view(attn.size(0), attn.size(1), self.num_heads * self.d_v)
+        attn = attn.reshape(attn.size(0), attn.size(1), self.num_heads * self.d_v)
         attn = self.final_linear(attn)
 
         return attn
