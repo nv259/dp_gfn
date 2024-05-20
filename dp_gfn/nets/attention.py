@@ -6,6 +6,36 @@ import torch.nn.functional as F
 
 
 class LinearMultiHeadAttention(nn.Module):
+    """
+    Linear Multi-Head Attention: a variant of multi-head attention based on the Linformer approach proposed by Wang et al. 
+    This version of multi-head attention aims to reduce the computational complexity of the traditional self-attention mechanism 
+    by projecting the query and key matrices before computing the attention scores.
+    
+    Linformer: Self-Attention with Linear Complexity. See: https://arxiv.org/pdf/2006.04768
+    Attention is all you need paper. See: https://arxiv.org/abs/1706.03762
+    
+    Attributes:
+        input_size (int): The dimensionality of the input embeddings.
+        num_heads (int): The number of attention heads.
+        d_k (int): The dimensionality of the key vectors.
+        d_v (Optional[int]): The dimensionality of the value vectors. Defaults to d_k if not specified.
+        d_model (Optional[int]): The dimensionality of the output embeddings. Defaults to d_k * num_heads if not specified.
+        dropout (float): Dropout rate applied to the attention scores. Default is 0.1.
+        eps (float): A small value added to the denominator for numerical stability. Default is 1e-6.
+    
+    Methods:
+        __init__: Initializes the linear multi-head attention mechanism with the specified parameters.
+
+        forward: Computes the multi-head attention for the given queries, keys, and values.
+            Parameters:
+                query (torch.Tensor): Query tensor of shape [batch_size, target_len, input_size].
+                key (torch.Tensor): Key tensor of shape [batch_size, source_len, input_size].
+                value (torch.Tensor): Value tensor of shape [batch_size, source_len, input_size].
+                mask (Optional[torch.Tensor]): Optional mask tensor to prevent attention to certain positions (not implemented).
+            Returns:
+                torch.Tensor: The result of the multi-head attention mechanism, of shape [batch_size, target_len, d_model].
+    """
+    
     def __init__(
         self,
         input_size: int,
