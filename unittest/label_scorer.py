@@ -9,8 +9,8 @@ class TestLabelScorer(unittest.TestCase):
         scorer = LabelScorer(num_tags=5)
 
         # Create some dummy data
-        heads = torch.randn(16, 10, 768)
-        deps = torch.randn(16, 10, 768)
+        heads = torch.randn(16, 768)
+        deps = torch.randn(16, 768)
 
         # Run the scorer
         lab_scores = scorer(heads, deps)
