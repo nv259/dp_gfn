@@ -20,53 +20,68 @@ class StateEncoder(nn.Module):
         label_embedding_dim=0,
         hidden_layers=[512, 256],
         dropout_rate=0.1,
-        activation='ReLU',
+        activation="ReLU",
         encode_label=False,
     ):
-        assert ((label_embedding_dim != 0) ^ (not encode_label)), "Either label_embedding_dim or encode_label must be specified"
+        assert (label_embedding_dim != 0) ^ (
+            not encode_label
+        ), "Either label_embedding_dim or encode_label must be specified"
         if (num_tags != 0) and (label_embedding_dim == 0):
-            print("warning: num_tags is specified but label_embedding_dim is not specified, label_embedding_dim will be set to node_embedding_dim")
+            print(
+                "warning: num_tags is specified but label_embedding_dim is not specified, label_embedding_dim will be set to node_embedding_dim"
+            )
             label_embedding_dim = node_embedding_dim
 
         super(StateEncoder, self).__init__()
         self.num_variables = num_variables
-        self.encode_label = encode_label    # Whether to encode the label information in the state representation
-        
-        self.indices = np.arange(0, num_variables ** 2) 
+        self.encode_label = encode_label  # Whether to encode the label information in the state representation
+
+        self.indices = np.arange(0, num_variables**2)
         self.head_ids = self.indices // num_variables
         self.dep_ids = self.indices % num_variables
-        
-        self.mlp_head = MLP(word_embedding_dim, node_embedding_dim, hidden_layers, dropout_rate, activation)
-        self.mlp_dep = MLP(word_embedding_dim, node_embedding_dim, hidden_layers, dropout_rate, activation)
-        
-        if encode_label: 
+
+        self.mlp_head = MLP(
+            word_embedding_dim,
+            node_embedding_dim,
+            hidden_layers,
+            dropout_rate,
+            activation,
+        )
+        self.mlp_dep = MLP(
+            word_embedding_dim,
+            node_embedding_dim,
+            hidden_layers,
+            dropout_rate,
+            activation,
+        )
+
+        if encode_label:
             # num_embeddings = len( {labels} v {edge-less} )
             self.label_embedding = nn.Embedding(num_tags + 1, label_embedding_dim)
 
     def forward(self, word_embeddings, adjacency):
-        assert word_embeddings.shape[1] <= self.num_variables, "Number of word is too large"
+        assert (
+            word_embeddings.shape[1] <= self.num_variables
+        ), "Number of word is too large"
         assert adjacency.shape[1] == adjacency.shape[2] == self.num_variables
-        
+
         wh_embeddings = self.mlp_head(word_embeddings)
         wd_embeddings = self.mlp_dep(word_embeddings)
-        
-        adjacency = adjacency.reshape(
-            adjacency.shape[0],
-            self.num_variables ** 2 
-        )
-        
+
+        adjacency = adjacency.reshape(adjacency.shape[0], self.num_variables**2)
+
         label_embeddings = (
-            self.label_embedding(adjacency) 
+            self.label_embedding(adjacency)
             if self.encode_label
-            else torch.zeros(adjacency.shape[0], self.num_variables ** 2, 0)
+            else torch.zeros(adjacency.shape[0], self.num_variables**2, 0)
         )
-        
+
         # Prime wh and wb to create n^2 arcs by linking wh_i with corresponding wd_i
         # e.g {h_0, h_0, h_0, h_1, h_1, h_1, h_2, h_2, h_2}
         wh_embeddings = wh_embeddings[:, self.head_ids]
         # e.g {d_0, d_1, d_2, d_0, d_1, d_2, d_0, d_1, d_2}
-        wd_embeddings = wd_embeddings[:, self.dep_ids] 
-        
+        wd_embeddings = wd_embeddings[:, self.dep_ids]
+
         state_embeddings = torch.cat(
             [wh_embeddings, wd_embeddings, label_embeddings], dim=-1
         )
@@ -107,8 +122,8 @@ class PrefEncoder(nn.Module):
         self.bert_model = AutoModel.from_pretrained(pretrained_path)
         if trainable_embeddings is False:
             for param in self.bert_model.parameters():
-                param.requires_grad = False 
-        
+                param.requires_grad = False
+
         # Store auxiliary parameters
         self.model_embedding = self.bert_model.embeddings.word_embeddings
         self.agg_func = agg_func
@@ -116,7 +131,7 @@ class PrefEncoder(nn.Module):
 
     def forward(self, batch):
         tokens = self.tokenizer(
-            batch, return_tensors="pt", padding='max_length', truncation=True
+            batch, return_tensors="pt", padding="max_length", truncation=True
         )
         token_embeddings = self.bert_model(**tokens).last_hidden_state
 
@@ -167,13 +182,23 @@ class LabelScorer(nn.Module):
         activation="ReLU",
         keep_current_embeddings=True,
     ):
+        if keep_current_embeddings:
+            print(
+                f"warning: keep_current_embeddings is True, input_dim will be set to intermediate_dim ({intermediate_dim})"
+            )
+            input_dim = intermediate_dim
+
         super(LabelScorer, self).__init__()
         self.num_tags = num_tags
         self.keep_current_embeddings = keep_current_embeddings
-       
-        if not self.keep_current_embeddings: 
-            self.mlp_head = MLP(input_dim, intermediate_dim, hidden_layers, dropout_rate, activation)
-            self.mlp_dep = MLP(input_dim, intermediate_dim, hidden_layers, dropout_rate, activation)
+
+        if not self.keep_current_embeddings:
+            self.mlp_head = MLP(
+                input_dim, intermediate_dim, hidden_layers, dropout_rate, activation
+            )
+            self.mlp_dep = MLP(
+                input_dim, intermediate_dim, hidden_layers, dropout_rate, activation
+            )
 
         W = torch.randn(num_tags, intermediate_dim, intermediate_dim)
         self.W = nn.Parameter(W)
@@ -188,17 +213,12 @@ class LabelScorer(nn.Module):
         nn.init.xavier_uniform_(self.Wd)
 
         b = torch.randn(num_tags)
-        self.b = nn.Parameter(b) 
-        
+        self.b = nn.Parameter(b)
+
     def forward(self, heads, deps) -> torch.Tensor:
-        if not self.keep_current_embeddings:
-            # Map head-words and dep-words to corresponding intermediate representation
-            lab_heads = self.mlp_head(heads) 
-            lab_deps = self.mlp_dep(deps)
-        else:
-            lab_heads = heads
-            lab_deps = deps
-        
+        lab_heads = self.mlp_head(heads) if not self.keep_current_embeddings else heads
+        lab_deps = self.mlp_dep(deps) if not self.keep_current_embeddings else deps
+
         # Biaffine layer
         head_scores = lab_heads @ self.Wh
         dep_scores = lab_deps @ self.Wd
@@ -210,9 +230,9 @@ class LabelScorer(nn.Module):
 
         arc_scores = torch.reshape(
             lab_deps @ self.W @ lab_heads.transpose(-1, -2),
-            (heads.shape[0], self.num_tags)
+            (heads.shape[0], self.num_tags),
         )
-        
+
         lab_scores = arc_scores + head_scores + dep_scores + self.b
 
         return lab_scores
