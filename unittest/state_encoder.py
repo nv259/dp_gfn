@@ -1,27 +1,81 @@
 import unittest
 import torch
+
 from dp_gfn.nets.initial_encoders import StateEncoder
 
+
 class TestStateEncoder(unittest.TestCase):
-    def test_forward(self):
-        # Create a StateEncoder instance
-        encoder = StateEncoder(num_variables=10, num_tags=5)
 
-        # Create some dummy data
-        word_embeddings = torch.randn(16, 10, 768)
-        adjacency = torch.randint(0, 5, (16, 10, 10))
+    def setUp(self):
+        self.num_variables = 3
+        self.num_tags = 5
+        self.word_embedding_dim = 768
+        self.node_embedding_dim = 128
+        self.label_embedding_dim = 128
+        self.hidden_layers = [512, 256]
+        self.dropout_rate = 0.1
+        self.activation = 'ReLU'
+        self.encode_label = True
 
-        # Run the encoder
-        state_embeddings = encoder(word_embeddings, adjacency)
+        self.encoder = StateEncoder(
+            self.num_variables,
+            self.num_tags,
+            self.word_embedding_dim,
+            self.node_embedding_dim,
+            self.label_embedding_dim,
+            self.hidden_layers,
+            self.dropout_rate,
+            self.activation,
+            self.encode_label
+        )
 
-        # Check the output shape
-        self.assertEqual(state_embeddings.shape, (16, 100, 128 + 128 + 128))
+    def test_forward_pass(self):
+        batch_size = 10
+        word_embeddings = torch.randn(batch_size, self.num_variables, self.word_embedding_dim)
+        adjacency = torch.randint(0, 2, (batch_size, self.num_variables, self.num_variables))
 
+        state_embeddings, adjacency = self.encoder(word_embeddings, adjacency)
 
-print("Test StateEncoder")
-TestStateEncoder().test_forward()
-print("All tests passed!")
+        self.assertEqual(state_embeddings.shape, (batch_size, self.num_variables ** 2, self.node_embedding_dim + self.node_embedding_dim + self.label_embedding_dim))
+        self.assertEqual(adjacency.shape, (batch_size, self.num_variables * self.num_variables))
 
+    def test_forward_pass_without_label_encoding(self):
+        self.encoder = StateEncoder(
+            self.num_variables,
+            self.num_tags,
+            self.word_embedding_dim,
+            self.node_embedding_dim,
+            self.label_embedding_dim,
+            self.hidden_layers,
+            self.dropout_rate,
+            self.activation,
+            encode_label=False
+        )
 
+        batch_size = 10
+        word_embeddings = torch.randn(batch_size, self.num_variables, self.word_embedding_dim)
+        adjacency = torch.randint(0, 2, (batch_size, self.num_variables, self.num_variables))
 
+        state_embeddings, adjacency = self.encoder(word_embeddings, adjacency)
 
+        self.assertEqual(state_embeddings.shape, (batch_size, self.num_variables ** 2, self.node_embedding_dim * 2))
+        self.assertEqual(adjacency.shape, (batch_size, self.num_variables * self.num_variables))
+
+    def test_forward_pass_with_invalid_input_shape(self):
+        batch_size = 10
+        word_embeddings = torch.randn(batch_size, self.num_variables + 1, self.word_embedding_dim)
+        adjacency = torch.randint(0, 2, (batch_size, self.num_variables, self.num_variables))
+
+        with self.assertRaises(AssertionError):
+            self.encoder(word_embeddings, adjacency)
+
+    def test_forward_pass_with_invalid_adjacency_shape(self):
+        batch_size = 10
+        word_embeddings = torch.randn(batch_size, self.num_variables, self.word_embedding_dim)
+        adjacency = torch.randint(0, 2, (batch_size, self.num_variables + 1, self.num_variables))
+
+        with self.assertRaises(AssertionError):
+            self.encoder(word_embeddings, adjacency)
+
+if __name__ == '__main__':
+    unittest.main()
