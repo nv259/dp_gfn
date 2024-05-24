@@ -21,9 +21,11 @@ class StateEncoder(nn.Module):
         hidden_layers=[512, 256],
         dropout_rate=0.1,
         activation='ReLU',
+        encode_label=True,
     ):
         super(StateEncoder, self).__init__()
         self.num_variables = num_variables
+        self.encode_label = encode_label    # Whether to encode the label information in the state representation
         
         self.indices = np.arange(0, num_variables ** 2) 
         self.head_ids = self.indices // num_variables
@@ -31,11 +33,13 @@ class StateEncoder(nn.Module):
         
         self.mlp_head = MLP(word_embedding_dim, node_embedding_dim, hidden_layers, dropout_rate, activation)
         self.mlp_dep = MLP(word_embedding_dim, node_embedding_dim, hidden_layers, dropout_rate, activation)
-
-        # num_embeddings = len( {labels} v {edge-less} )
-        self.label_embedding = nn.Embedding(num_tags + 1, label_embedding_dim)
+        
+        if encode_label: 
+            # num_embeddings = len( {labels} v {edge-less} )
+            self.label_embedding = nn.Embedding(num_tags + 1, label_embedding_dim)
 
     def forward(self, word_embeddings, adjacency):
+        assert word_embeddings.shape[1] <= self.num_variables, "Number of word is too large"
         assert adjacency.shape[1] == adjacency.shape[2] == self.num_variables
         
         wh_embeddings = self.mlp_head(word_embeddings)
@@ -45,7 +49,12 @@ class StateEncoder(nn.Module):
             adjacency.shape[0],
             self.num_variables ** 2 
         )
-        label_embeddings = self.label_embedding(adjacency)
+        
+        label_embeddings = (
+            self.label_embedding(adjacency) 
+            if self.encode_label
+            else torch.zeros(adjacency.shape[0], self.num_variables ** 2, 0)
+        )
         
         # Prime wh and wb to create n^2 arcs by linking wh_i with corresponding wd_i
         # e.g {h_0, h_0, h_0, h_1, h_1, h_1, h_2, h_2, h_2}
@@ -57,7 +66,7 @@ class StateEncoder(nn.Module):
             [wh_embeddings, wd_embeddings, label_embeddings], dim=-1
         )
 
-        return state_embeddings
+        return state_embeddings, adjacency
 
 
 class PrefEncoder(nn.Module):
