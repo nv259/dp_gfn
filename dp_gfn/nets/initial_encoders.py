@@ -14,15 +14,21 @@ class StateEncoder(nn.Module):
     def __init__(
         self,
         num_variables,
-        num_tags,
+        num_tags=0,
         word_embedding_dim=768,
         node_embedding_dim=128,
-        label_embedding_dim=128,
+        label_embedding_dim=0,
         hidden_layers=[512, 256],
         dropout_rate=0.1,
         activation='ReLU',
-        encode_label=True,
+        encode_label=False,
     ):
+        assert ((label_embedding_dim != 0) ^ (not encode_label)), "Either label_embedding_dim or encode_label must be specified"
+        if (num_tags != 0) and (label_embedding_dim == 0):
+            print("warning: num_tags is specified but label_embedding_dim is not specified, label_embedding_dim will be set to node_embedding_dim")
+            label_embedding_dim = node_embedding_dim
+            
+
         super(StateEncoder, self).__init__()
         self.num_variables = num_variables
         self.encode_label = encode_label    # Whether to encode the label information in the state representation
