@@ -63,4 +63,6 @@ class DPGFlowNet(nn.Module):
             activation=self.cfg.model.label_scorer.activation,
             use_state_node_embeddings=self.cfg.model.label_scorer.use_state_node_embeddings
         )
-        
+    
+    def forward(self, x, mask):
+        pass 
