@@ -3,7 +3,8 @@ import torch
 
 
 def encode(decoded):
-    pass
+    encoded = decoded.reshape(decoded.shape[0], -1).detach().cpu().numpy()
+    return torch.from_numpy(np.packbits(encoded, axis=1)) 
 
 
 def decode(encoded, dtype=np.float32):
