@@ -1,5 +1,5 @@
 import torch
-from dp_gfn.utils.masking import base_mask, decode, encode
+from dp_gfn.utils import masking
 
 
 def get_reward():
@@ -23,26 +23,26 @@ def setup():
 
 
 class StateBatch:
-    def __init__(self, edges, labels, num_variables, device, root_first=True):
+    def __init__(self, edges, labels, num_words, num_variables, device, root_first=True):
         self.num_variables = num_variables
         self.device = device
 
         self._data = {
             "edges": edges.to(device),
             "labels": labels.to(device),
-            "mask": encode(
-                base_mask(
-                    num_variables=num_variables, root_first=root_first, device=device
+            "mask": masking.encode(
+                masking.base_mask(
+                    num_words=num_words, root_first=root_first, device=device
                 ).repeat(edges.shape[0], 1, 1)
             ),
-            "adjacency": encode(
+            "adjacency": masking.encode(
                 torch.zeros(edges.shape[0], num_variables, num_variables, device=device)
             ),
             "isolated_root": torch.ones(
                 edges.shape[0], dtype=torch.bool, device=device
             ),
             # "num_edges": torch.zeros(edges.shape[0], dtype=torch.int).to(device),
-            "num_variables": num_variables.to(device),
+            "num_words": num_words.to(device),
             "done": torch.zeros(edges.shape[0], dtype=torch.bool, device=device),
         }
         self._closure_T = torch.eye(num_variables, dtype=torch.bool, device=device)
@@ -55,8 +55,33 @@ class StateBatch:
 
     def step(
         self,
+        actions
     ):
-        pass
+        sources = actions // self.num_variables
+        targets = actions % self.num_variables
+        dones = self._data["done"]
+         
+        if not torch.all(self._data['mask'][dones, sources, targets]):
+            raise ValueError("Invalid action")
+        
+        # Update adjacency matrices
+        self._data["adjacency"][~dones, sources, targets] = 1
+        self._data["adjacency"][dones] = 0
+        
+        # Update transitive closure of transpose
+        source_rows = torch.unsqueeze(self._closure_T[~dones, sources, :], axis=1)
+        target_cols = torch.unsqueeze(self._closure_T[~dones, :, targets], axis=2)
+        self._closure_T[~dones] |= torch.logical_and(source_rows, target_cols)  # Outer product
+        self._closure_T[dones] = torch.eye(self.num_variables, dtype=torch.bool)
+
+        # Update dones
+        self._data["done"][dones] = masking.check_done(self._data["adjacency"])
+        
+        # Update the mask
+        self._data["mask"] = 1 - (self._data['adjacency'] + self._closure_T)
+        num_parents = torch.sum(self._data['adjacency'], axis=1, keepdim=True)
+        self._data['mask'] *= (num_parents < 1).to(self.device)     # each node has only one parent node
+
 
     def reset(
         self,
