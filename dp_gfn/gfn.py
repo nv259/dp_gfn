@@ -84,7 +84,8 @@ class StateBatch:
         self._data['mask'] *= (num_parents < 1).to(self.device)     # each node has only one parent node
         # Exclude all undue edges 
         for batch_idx, num_word in enumerate(self._data["num_words"]):
-            self._data[batch_idx, num_word + 1: self.num_variables, num_word + 1: self.num_variables] = False
+            self._data['mask'][batch_idx, num_word + 1: self.num_variables, num_word + 1: self.num_variables] = False
+        self._data['mask'][:, :, 0] = False
             
     def to(self, device):
         self.device = device
