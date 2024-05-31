@@ -23,7 +23,7 @@ def setup():
 
 
 class StateBatch:
-    def __init__(self, edges, labels, num_words, num_variables, device, root_first=True):
+    def __init__(self, edges: torch.Tensor, labels: torch.Tensor, num_words: torch.Tensor, num_variables: torch.Tensor, device: torch.Tensor, root_first=True):
         self.num_variables = num_variables
         self.device = device
 
@@ -82,7 +82,18 @@ class StateBatch:
         num_parents = torch.sum(self._data['adjacency'], axis=1, keepdim=True)
         self._data['mask'] *= (num_parents < 1).to(self.device)     # each node has only one parent node
 
-
+    def to(self, device):
+        self.device = device
+        
+        self._data["edges"] = self._data["edges"].to(device)
+        self._data["labels"] = self._data["labels"].to(device)
+        self._data["mask"] = self._data["mask"].to(device)
+        self._data["adjacency"] = self._data["adjacency"].to(device)
+        self._data["isolated_root"] = self._data["isolated_root"].to(device)
+        self._data["num_words"] = self._data["num_words"].to(device)
+        self._data["done"] = self._data["done"].to(device)
+        self._closure_T.to(device)
+        
     def reset(
         self,
     ):
