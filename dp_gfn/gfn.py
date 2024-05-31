@@ -26,13 +26,14 @@ class StateBatch:
     def __init__(self, edges: torch.Tensor, labels: torch.Tensor, num_words: torch.Tensor, num_variables: torch.Tensor, device: torch.Tensor, root_first=True):
         self.num_variables = num_variables
         self.device = device
+        self.batch_size = edges.shape[0]
 
         self._data = {
             "edges": edges.to(device),
             "labels": labels.to(device),
             "mask": masking.encode(
-                masking.base_mask(
-                    num_words=num_words, root_first=root_first, device=device
+                masking.batched_base_mask(
+                    num_words=num_words, num_variables=num_variables, root_first=root_first, device=device
                 ).repeat(edges.shape[0], 1, 1)
             ),
             "adjacency": masking.encode(
@@ -81,7 +82,10 @@ class StateBatch:
         self._data["mask"] = 1 - (self._data['adjacency'] + self._closure_T)
         num_parents = torch.sum(self._data['adjacency'], axis=1, keepdim=True)
         self._data['mask'] *= (num_parents < 1).to(self.device)     # each node has only one parent node
-
+        # Exclude all undue edges 
+        for batch_idx, num_word in enumerate(self._data["num_words"]):
+            self._data[batch_idx, num_word + 1: self.num_variables, num_word + 1: self.num_variables] = False
+            
     def to(self, device):
         self.device = device
         
