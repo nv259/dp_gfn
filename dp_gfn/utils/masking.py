@@ -18,6 +18,8 @@ def decode(encoded, num_variables, dtype=torch.float32):
 def batched_base_mask(num_words: torch.Tensor|list[int], num_variables: int, root_first=True, device=torch.device('cpu')) -> torch.Tensor:
     """
     Generate the batched base mask for the given number of words and number of variables. 
+
+    Only edges from ROOT to 1-num_words nodes are left available (True). Otherwise, set to False.
     """
     mask = torch.zeros(num_variables, num_variables, dtype=torch.bool, device=device) 
     mask = mask.repeat(len(num_words), 1, 1)
@@ -42,14 +44,7 @@ def base_mask(num_words: int, num_variables: int, root_first=True, device=torch.
     return mask
 
 
-def check_done(adjacency):
-    """
-    Checks if the graph is fully connected, indicating that the parsing is done.
-
-    Args:
-        adjacency (torch.Tensor): Adjacency matrix of the graph.
-
-    Returns:
-        torch.Tensor: Boolean tensor indicating whether the graph is fully connected.
-    """
-    return torch.all(torch.sum(adjacency, dim=1) == 1, dim=1)
+def mask_logits(logits, masks, MASKED_VALUE=1e-5):
+    assert logits.shape == masks.shape
+    
+    return masks * logits + (1 - masks) * MASKED_VALUE
