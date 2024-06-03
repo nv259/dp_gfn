@@ -1,0 +1,62 @@
+model:
+    _target_: dp_gfn.nets.gflownet.DPGFlowNet
+    
+    # common hyperparams (all sub-models will inherit these hyperparams if not specified)
+    node_embedding_dim: 128
+    label_embedding_dim: 128
+    hidden_layers: [256, 128]
+    dropout_rate: 0.1
+    activation: ReLU
+    
+    # encoder
+
+    pref_encoder:
+        _target_: dp_gfn.nets.initial_encoders.PrefEncoder
+        pretrained_path: google-bert/bert-base-uncased
+        trainable: False
+        agg_func: mean
+
+    state_encoder:
+        _target_: dp_gfn.nets.initial_encoders.StateEncoder
+        dropout_rate: 0.1
+        activation: ReLU
+        hidden_layers: [128, 128]   # in_features -> 128 (act) -> 128 (act) -> out_features
+
+    backbone:
+        _target_: dp_gfn.nets.encoders.LinearTransformer 
+        num_layers: 3
+        input_size: 384
+        num_heads: 6
+        d_k: 128
+        d_v: 128
+        d_model: 264
+        attention:
+            dropout_rate: 0.1
+            eps: 1e-06
+        activation: Tanh
+        dropout_rate: 0.1
+        
+    label_scorer:
+        _target_: dp_gfn.nets.initial_encoders.LabelScorer
+        intermediate_dim: 128
+        hidden_layers: [256, 128]
+        dropout_rate: 0.1
+        activation: ReLU
+        use_pretrained_embeddings: False    # if False, use node embeddings in state representations (head & dep)
+                                            # otherwise, pretrained word embeddings are used and mapping to intermediate dim is required
+
+    output_logits:
+        _target_: dp_gfn.nets.encoders.MLP
+        hidden_layers: [256, 128]
+        dropout_rate: 0.1
+        activation: ReLU
+
+    output_Z:
+        _target_: dp_gfn.nets.encoders.MLP
+        hidden_layers: [256, 128]
+        dropout_rate: 0.1
+        activation: ReLU
+
+num_variables: 158
+num_tags: 60
+init_label_embeddings: False
