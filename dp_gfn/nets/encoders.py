@@ -36,7 +36,21 @@ class MLP(nn.Module):
         return self.layers(x)
 
 
-class LinearTransformer(nn.Module):
+class Backbone(nn.Module):
+    
+    def __init__(self, encoder_block, num_layers):
+        super(Backbone, self).__init__()
+        self.num_layers = num_layers
+        self.layers = nn.ModuleList([encoder_block for _ in range(num_layers)])
+    
+    def forward(self, x):
+        for layer in self.layers:
+            x = layer(x)
+            
+        return self.layers(x)    
+    
+    
+class LinearTransformerBlock(nn.Module):
     def __init__(
         self,
         input_size:int,
@@ -67,7 +81,7 @@ class LinearTransformer(nn.Module):
             if d_label <= 0: 
                 raise NotImplementedError("d_label must be greater than 0")
              
-        super(LinearTransformer, self).__init__()
+        super(LinearTransformerBlock, self).__init__()
 
         self.input_size = input_size
         self.d_model = d_model or d_k * num_heads
