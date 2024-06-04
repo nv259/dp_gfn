@@ -30,10 +30,11 @@ class DPGFlowNet(nn.Module):
             num_variables=self.cfg.num_variables,
             num_tags=self.cfg.num_tags,
             word_embedding_dim=self.word_embedding.hidden_dim,
-            node_embedding_dim=self.cfg.node_embedding_dim,
-            label_embedding_dim=self.cfg.label_embedding_dim
-            or self.cfg.node_embedding_dim,
-            hidden_layers=self.cfg.model.state_encoder.hidden_layers,
+            node_embedding_dim=self.cfg.model.node_embedding_dim,
+            label_embedding_dim=self.cfg.model.label_embedding_dim
+            or self.cfg.model.node_embedding_dim,
+            hidden_layers=self.cfg.model.state_encoder.hidden_layers
+            or [512, 256],
             dropout_rate=self.cfg.model.state_encoder.dropout_rate,
             activation=self.cfg.model.state_encoder.activation,
             encode_label=self.cfg.init_label_embeddings,
@@ -43,7 +44,7 @@ class DPGFlowNet(nn.Module):
         # TODO: Implement other architectures for backbone
         self.encoder = [
             LinearTransformer(
-                input_size=self.cfg.model.backbone.input_size,  # Input dim of the backbone
+                input_size=self.cfg.model.backbone.in_features,  # Input dim of the backbone
                 num_heads=self.cfg.model.backbone.num_heads,
                 d_k=self.cfg.model.backbone.d_k,
                 d_v=self.cfg.model.backbone.d_v or self.cfg.model.backbone.d_k,
@@ -58,7 +59,7 @@ class DPGFlowNet(nn.Module):
                 eps=self.cfg.model.backbone.attention.eps,
                 label_embedded=self.cfg.init_label_embeddings,
                 num_tags=self.cfg.num_tags,
-                d_label=self.cfg.label_embedding_dim or self.cfg.node_embedding_dim,
+                d_label=self.cfg.model.label_embedding_dim or self.cfg.model.node_embedding_dim,
             )
             for _ in range(self.cfg.model.backbone.num_layers)
         ]
@@ -67,7 +68,7 @@ class DPGFlowNet(nn.Module):
         # TODO: Re-implement for input heads and deps are from plms, maybe?
         self.label_scorer = LabelScorer(
             num_tags=self.cfg.num_tags,
-            input_dim=self.cfg.node_embedding_dim,
+            input_dim=self.cfg.model.node_embedding_dim,
             intermediate_dim=self.cfg.model.label_scorer.intermediate_dim,
             hidden_layers=self.cfg.model.label_scorer.hidden_layers,
             dropout_rate=self.cfg.model.label_scorer.dropout_rate,
@@ -78,29 +79,31 @@ class DPGFlowNet(nn.Module):
         self.logits = MLP(
             input_dim=self.cfg.model.backbone.d_model,
             output_dim=self.cfg.num_variables**2,
-            hidden_layers=self.cfg.model.logits.hidden_layers,
-            dropout_rate=self.cfg.model.logits.dropout_rate,
-            activation=self.cfg.model.logits.activation,
+            hidden_layers=self.cfg.model.output_logits.hidden_layers,
+            dropout_rate=self.cfg.model.output_logits.dropout_rate,
+            activation=self.cfg.model.output_logits.activation,
         )
 
         # TODO: Re-design the Z function
         # Z for the overall flow of given sentences
-        # self.Z_mod = nn.Linear(self.word_embedding.model_embedding, self.cfg.backbone.d_model)
+        # self.output_Z = nn.Linear(self.word_embedding.model_embedding, self.cfg.backbone.d_model)
         self.Z_mod = MLP(
             input_dim=self.word_embedding.hidden_dim,
             output_dim=self.cfg.model.backbone.d_model,
             hidden_layers=[
                 self.cfg.model.backbone.d_model + self.word_embedding.hidden_dim
             ],
-            dropout_rate=self.cfg.model.Z_mod.dropout_rate or 0.1,
-            activation=self.cfg.model.Z_mod.activation or "ReLU",
+            dropout_rate=self.cfg.model.output_Z.dropout_rate or 0.1,
+            activation=self.cfg.model.output_Z.activation or "ReLU",
         )
+        
+        self.logsoftmax2 = nn.LogSoftmax(2)
 
     def Z(self, pref):
         return self.Z_mod(pref).sum(1)
 
     def Z_param(self):
-        return self.Z_mod.parameters()
+        return self.output_Z.parameters()
 
     def model_params(self):
         return (
@@ -111,7 +114,6 @@ class DPGFlowNet(nn.Module):
             + list(self.logits.parameters())
         )
 
-    # TODO: Implement [PAD] elimination, maybe?
     def forward(self, edges, labels=None, mask=None):
         # Embed through backbone
         for layer in self.encoder:
