@@ -60,3 +60,4 @@ model:
 num_variables: 158
 num_tags: 60
 init_label_embeddings: False
+seed: 42
