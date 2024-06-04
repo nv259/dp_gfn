@@ -1,0 +1,79 @@
+_target_: dp_gfn.nets.gflownet.DPGFlowNet
+
+# common hyperparams (all sub-models will inherit these hyperparams if not specified)
+common:
+    node_embedding_dim: 128
+    label_embedding_dim: 128
+    hidden_layers: [256, 128]
+    dropout_rate: 0.1
+    activation: ReLU
+    agg_func: mean
+
+pref_encoder:
+    _target_: dp_gfn.nets.initial_encoders.PrefEncoder
+    pretrained_path: google-bert/bert-base-uncased
+    trainable: False
+    agg_func: ${model.common.agg_func}
+    max_word_len: ${max_number_of_words}
+
+state_encoder:
+    _target_: dp_gfn.nets.initial_encoders.StateEncoder
+    num_variables: ${max_number_of_words}
+    num_tags: ${num_tags}
+    # word_embedding_dim
+    node_embedding_dim: ${model.common.node_embedding_dim}
+    label_embedding_dim: ${model.common.label_embedding_dim}
+    hidden_layers:    # in_features -> 128 (act) -> 128 (act) -> out_features
+    dropout_rate: ${model.common.dropout_rate}
+    activation: ${model.common.dropout_rate}
+    encode_label: ${init_label_embeddings}
+
+backbone:
+    _target_: dp_gfn.nets.encoders.Backbone
+    
+    encoding_block:
+        _target_: dp_gfn.nets.encoders.LinearTransformerBlock
+        input_dim: 384                 # node_emb | node_emb | label_em
+        num_heads: 4
+        d_k: 64
+        d_v: 64
+        d_model: 256                    # node_emb | node_emb  
+        activation: ${model.common.activation}
+        attn_dropout: ${model.common.dropout_rate}
+        mlp_dropout: ${model.common.dropout_rate}
+        dropout_rate: ${model.common.dropout_rate}
+        eps: 1e-6
+        label_embedded: ${init_label_embeddings}
+        num_tags: ${num_tags}
+        d_label: ${model.common.label_embedding_dim}
+    num_layers: 3
+    input_dim: ${model.backbone.encoding_block.input_dim}
+    output_dim: ${model.backbone.encoding_block.d_model}
+
+label_scorer:
+    _target_: dp_gfn.nets.initial_encoders.LabelScorer
+    num_tags: ${num_tags}
+    input_dim: ${model.common.node_embedding_dim}
+    intermediate_dim: 128
+    hidden_layers: ${model.common.hidden_layers}
+    dropout_rate: ${model.common.dropout_rate}
+    activation: ${model.common.activation}
+    use_pretrained_embeddings: False    # if False, use node embeddings in state representations (head & dep)
+                                        # otherwise, pretrained word embeddings are used and mapping to intermediate dim is required
+
+output_logits:
+    _partial_: True
+    _target_: dp_gfn.nets.encoders.MLP
+    input_dim: ${model.backbone.output_dim}
+    # output_dim: num_variables ** 2 
+    # hidden_layers: ${model.common.hidden_layers}
+    dropout_rate: ${model.common.dropout_rate}
+    activation: ${model.common.activation}
+
+output_Z:
+    _partial_: True
+    _target_: dp_gfn.nets.encoders.MLP
+    # input_dim: word_embedding_dim
+    # hidden_layers: ${model.common.hidden_layers}
+    dropout_rate: ${model.common.dropout_rate}
+    activation: ${model.common.activation}

@@ -14,7 +14,7 @@ class StateEncoder(nn.Module):
     def __init__(
         self,
         num_variables,
-        num_tags=0,
+        num_tags=0, # FIXME: Protential error 
         word_embedding_dim=768,
         node_embedding_dim=128,
         label_embedding_dim=0,
@@ -98,7 +98,7 @@ class PrefEncoder(nn.Module):
 
     Args:
         pretrained_path (str, optional): Path to the pretrained language model.
-        trainable_embeddings (bool, optional): If True, allows fine-tuning of embeddings. Default is True.
+        trainable (bool, optional): If True, allows fine-tuning of embeddings. Default is True.
         agg_func (str, optional): Aggregation function to combine token embeddings into word embeddings. Default is 'mean'.
         max_word_length (int, optional): Maximum number of words per sentence. Default is 160.
 
@@ -112,7 +112,7 @@ class PrefEncoder(nn.Module):
     def __init__(
         self,
         pretrained_path=None,
-        trainable_embeddings=True,
+        trainable=True,
         agg_func="mean",
         max_word_length=160,
     ):
@@ -121,12 +121,12 @@ class PrefEncoder(nn.Module):
         # Load pretrain language model
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_path)
         self.bert_model = AutoModel.from_pretrained(pretrained_path)
-        if trainable_embeddings is False:
+        if trainable is False:
             for param in self.bert_model.parameters():
                 param.requires_grad = False
 
         # Store auxiliary parameters
-        self.hidden_dim = self.bert_model.embeddings.word_embeddings
+        self.word_embedding_dim = self.bert_model.embeddings.word_embeddings
         self.agg_func = agg_func
         self.max_word_length = max_word_length
 

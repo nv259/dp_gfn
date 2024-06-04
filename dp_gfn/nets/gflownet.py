@@ -1,3 +1,4 @@
+from typing import Any
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -9,23 +10,36 @@ from dp_gfn.nets.encoders import (
 from dp_gfn.nets.initial_encoders import LabelScorer, PrefEncoder, StateEncoder
 from dp_gfn.utils.masking import mask_logits
 
+from hydra.utils import instantiate
 # from linear_attention_transformer import LinearAttentionTransformer
 
 
 class DPGFlowNet(nn.Module):
-    def __init__(self, cfg):
+    def __init__(
+        self, 
+        pref_encoder: PrefEncoder, 
+        state_encoder: StateEncoder, 
+        backbone: Any,
+        label_scorer: LabelScorer, 
+        output_logits: MLP,
+        output_Z: MLP, 
+        num_variables: int, 
+        num_tags: int, 
+        init_label_embeddings=False,
+        node_embedding_dim=128,
+        label_embedding_dim=128
+    ):
         super(DPGFlowNet, self).__init__()
-        self.cfg = cfg
-        self.cfg.num_tags += 2  # including edge-from-ROOT & no-edge
-
-        # 1. Initial Encoder
-        self.word_embedding = PrefEncoder(
-            pretrained_path=self.cfg.model.pref_encoder.pretrained_path,
-            trainable_embeddings=self.cfg.model.pref_encoder.trainable,
-            agg_func=self.cfg.model.pref_encoder.agg_func,
-            max_word_length=self.cfg.num_variables,
-        )
-
+        self.num_variables = num_variables  
+        self.num_tags = num_tags + 2    # including edge-from-ROOT & no-edge
+        self.init_label_embeddings = init_label_embeddings
+        
+        # 1. Initial Encoders
+        self.pref_encoder = pref_encoder
+        self.state_encoder = state_encoder(
+            word_embedding_dim=self.pref_encoder.word_embedding_dim,
+        ) 
+        
         self.state_embedding = StateEncoder(
             num_variables=self.cfg.num_variables,
             num_tags=self.cfg.num_tags,
@@ -44,7 +58,7 @@ class DPGFlowNet(nn.Module):
         # TODO: Implement other architectures for backbone
         self.encoder = [
             LinearTransformer(
-                input_size=self.cfg.model.backbone.in_features,  # Input dim of the backbone
+                input_dim=self.cfg.model.backbone.input_dim,  # Input dim of the backbone
                 num_heads=self.cfg.model.backbone.num_heads,
                 d_k=self.cfg.model.backbone.d_k,
                 d_v=self.cfg.model.backbone.d_v or self.cfg.model.backbone.d_k,

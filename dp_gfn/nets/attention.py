@@ -15,7 +15,7 @@ class LinearMultiHeadAttention(nn.Module):
     Attention is all you need paper. See: https://arxiv.org/abs/1706.03762
     
     Attributes:
-        input_size (int): The dimensionality of the input embeddings.
+        input_dim (int): The dimensionality of the input embeddings.
         num_heads (int): The number of attention heads.
         d_k (int): The dimensionality of the key vectors.
         d_v (Optional[int]): The dimensionality of the value vectors. Defaults to d_k if not specified.
@@ -28,9 +28,9 @@ class LinearMultiHeadAttention(nn.Module):
 
         forward: Computes the multi-head attention for the given queries, keys, and values.
             Parameters:
-                query (torch.Tensor): Query tensor of shape [batch_size, target_len, input_size].
-                key (torch.Tensor): Key tensor of shape [batch_size, source_len, input_size].
-                value (torch.Tensor): Value tensor of shape [batch_size, source_len, input_size].
+                query (torch.Tensor): Query tensor of shape [batch_size, target_len, input_dim].
+                key (torch.Tensor): Key tensor of shape [batch_size, source_len, input_dim].
+                value (torch.Tensor): Value tensor of shape [batch_size, source_len, input_dim].
                 mask (Optional[torch.Tensor]): Optional mask tensor to prevent attention to certain positions (not implemented).
             Returns:
                 torch.Tensor: The result of the multi-head attention mechanism, of shape [batch_size, target_len, d_model].
@@ -38,7 +38,7 @@ class LinearMultiHeadAttention(nn.Module):
     
     def __init__(
         self,
-        input_size: int,
+        input_dim: int,
         num_heads: int,
         d_k: int,
         d_v: Optional[int] = None,
@@ -46,16 +46,16 @@ class LinearMultiHeadAttention(nn.Module):
         eps: float = 1e-6,
     ):
         super().__init__()
-        self.input_size = input_size
+        self.input_dim = input_dim
         self.num_heads = num_heads
         self.d_k = d_k
         self.d_v = d_v or d_k
         self.d_model = d_model or d_k * num_heads
         self.eps = eps
 
-        self.query_linear = nn.Linear(input_size, self.d_k * self.num_heads)
-        self.key_linear = nn.Linear(input_size, self.d_k * self.num_heads)
-        self.value_linear = nn.Linear(input_size, self.d_v * self.num_heads)
+        self.query_linear = nn.Linear(input_dim, self.d_k * self.num_heads)
+        self.key_linear = nn.Linear(input_dim, self.d_k * self.num_heads)
+        self.value_linear = nn.Linear(input_dim, self.d_v * self.num_heads)
         self.final_linear = nn.Linear(self.d_k * self.num_heads, self.d_model)
 
         self.projection = lambda x: F.elu(x) + 1.0

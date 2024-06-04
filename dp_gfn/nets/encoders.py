@@ -38,9 +38,12 @@ class MLP(nn.Module):
 
 class Backbone(nn.Module):
     
-    def __init__(self, encoder_block, num_layers):
+    def __init__(self, encoder_block, num_layers, input_dim, output_dim):
         super(Backbone, self).__init__()
         self.num_layers = num_layers
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        
         self.layers = nn.ModuleList([encoder_block for _ in range(num_layers)])
     
     def forward(self, x):
@@ -53,7 +56,7 @@ class Backbone(nn.Module):
 class LinearTransformerBlock(nn.Module):
     def __init__(
         self,
-        input_size:int,
+        input_dim:int,
         num_heads: int,
         d_k: int,
         d_v: Optional[int] = None,
@@ -61,33 +64,33 @@ class LinearTransformerBlock(nn.Module):
         activation: str = "GELU",
         attn_dropout: float = 0.1,
         mlp_dropout: float = 0.1,
-        dropout: float = 0.1,
+        dropout_rate: float = 0.1,
         eps: float = 1e-6,
         label_embedded: bool = False,
         num_tags: Optional[int] = 0,
         d_label: Optional[int] = 0,
     ):
         assert ((num_tags != 0) ^ label_embedded), "Either label_embedded or d_label must be True (d_label != 0)"
-        assert input_size == d_model + d_label, "input_size must be equal to d_model + d_label"
+        assert input_dim == d_model + d_label, "input_dim must be equal to d_model + d_label"
         
-        if label_embedded and (input_size != d_model):
-            print("warning: label_embedded is True but d_model is not equal to input_size, using input_size instead")
-            d_model = input_size
+        if label_embedded and (input_dim != d_model):
+            print("warning: label_embedded is True but d_model is not equal to input_dim, using input_dim instead")
+            d_model = input_dim
             
-        if not label_embedded and (input_size != d_model + d_label):
-            print("warning: label_embedded is False but input_size is not equal to d_model + d_label, using d_label = input_size - d_model instead")
-            d_label = input_size - d_model 
+        if not label_embedded and (input_dim != d_model + d_label):
+            print("warning: label_embedded is False but input_dim is not equal to d_model + d_label, using d_label = input_dim - d_model instead")
+            d_label = input_dim - d_model 
             
             if d_label <= 0: 
                 raise NotImplementedError("d_label must be greater than 0")
              
         super(LinearTransformerBlock, self).__init__()
 
-        self.input_size = input_size
+        self.input_dim = input_dim
         self.d_model = d_model or d_k * num_heads
         self.d_label = d_label
         # TODO: Implement dropout properly
-        self.dropout = dropout
+        self.dropout_rate = dropout_rate
         self.attn_dropout = attn_dropout
         self.mlp_dropout = mlp_dropout
         self.label_embedded = label_embedded
@@ -96,10 +99,10 @@ class LinearTransformerBlock(nn.Module):
             self.label_embeddings = [
                 nn.Embedding(num_tags, d_label) for _ in range(2)
             ]
-        self.layer_norms = [nn.LayerNorm(self.input_size) for _ in range(2)]
+        self.layer_norms = [nn.LayerNorm(self.input_dim) for _ in range(2)]
 
         self.attention = LinearMultiHeadAttention(
-            input_size=input_size,
+            input_dim=input_dim,
             num_heads=num_heads,
             d_k=d_k,
             d_v=d_v,
@@ -109,7 +112,7 @@ class LinearTransformerBlock(nn.Module):
 
         # TODO: Implement widening factor & adjust layers (maybe)
         self.dense = MLP(
-            input_dim=self.input_size,
+            input_dim=self.input_dim,
             output_dim=self.d_model,
             hidden_layers=[self.d_model],
             activation=activation,
