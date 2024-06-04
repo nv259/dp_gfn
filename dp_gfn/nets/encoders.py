@@ -11,7 +11,7 @@ class MLP(nn.Module):
         self,
         input_dim,
         output_dim,
-        hidden_layers=[],
+        hidden_layers=None,
         dropout_rate=0.1,
         activation="ReLU",
     ):
@@ -21,6 +21,9 @@ class MLP(nn.Module):
 
         activation = getattr(nn, activation)
 
+        if not hidden_layers:
+            hidden_layers = [(input_dim + output_dim) // 2] 
+            
         layers = [nn.Linear(input_dim, hidden_layers[0]), activation()]
         for i in range(len(hidden_layers) - 1):
             layers.append(nn.Linear(hidden_layers[i], hidden_layers[i + 1]))
@@ -73,6 +76,7 @@ class LinearTransformer(nn.Module):
         self.dropout = dropout
         self.attn_dropout = attn_dropout
         self.mlp_dropout = mlp_dropout
+        self.label_embedded = label_embedded
         
         if (not label_embedded) or (d_label != 0):
             self.label_embeddings = [
@@ -102,12 +106,12 @@ class LinearTransformer(nn.Module):
         # Embed labels in case labels is retained
         labels_attn = (
             self.label_embeddings[0](labels)
-            if labels is not None
+            if not self.label_embedded 
             else torch.zeros(x.shape[0], x.shape[1], 0)
         )
         labels_dense = (
             self.label_embeddings[1](labels) 
-            if labels is not None 
+            if not self.label_embedded
             else labels_attn
         )
 
