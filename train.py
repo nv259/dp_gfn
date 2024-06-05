@@ -31,8 +31,11 @@ def main(config):
     print(OmegaConf.to_yaml(config))
     with open("hydra_config.txt", 'w') as f:
         f.write(OmegaConf.to_yaml(config))
-
-     
+    
+    config.num_tags += 2    # ROOT-edge & NO-edge
+    logging.info("Initializing Model") 
+    model = hydra.utils.instantiate(config.model)
+    logging.info("Model Initialized")
     
 
 if __name__=='__main__':

@@ -14,7 +14,7 @@ pref_encoder:
     pretrained_path: google-bert/bert-base-uncased
     trainable: False
     agg_func: ${model.common.agg_func}
-    max_word_len: ${max_number_of_words}
+    max_word_length: ${max_number_of_words}
 
 state_encoder:
     _target_: dp_gfn.nets.initial_encoders.StateEncoder
@@ -25,13 +25,13 @@ state_encoder:
     label_embedding_dim: ${model.common.label_embedding_dim}
     hidden_layers:    # in_features -> 128 (act) -> 128 (act) -> out_features
     dropout_rate: ${model.common.dropout_rate}
-    activation: ${model.common.dropout_rate}
+    activation: ${model.common.activation}
     encode_label: ${init_label_embeddings}
 
 backbone:
     _target_: dp_gfn.nets.encoders.Backbone
     
-    encoding_block:
+    encoder_block:
         _target_: dp_gfn.nets.encoders.LinearTransformerBlock
         input_dim: 384                 # node_emb | node_emb | label_em
         num_heads: 4
@@ -47,8 +47,8 @@ backbone:
         num_tags: ${num_tags}
         d_label: ${model.common.label_embedding_dim}
     num_layers: 3
-    input_dim: ${model.backbone.encoding_block.input_dim}
-    output_dim: ${model.backbone.encoding_block.d_model}
+    input_dim: ${model.backbone.encoder_block.input_dim}
+    output_dim: ${model.backbone.encoder_block.d_model}
 
 label_scorer:
     _target_: dp_gfn.nets.initial_encoders.LabelScorer
@@ -74,6 +74,12 @@ output_Z:
     _partial_: True
     _target_: dp_gfn.nets.encoders.MLP
     # input_dim: word_embedding_dim
+    output_dim: ${model.backbone.output_dim}
     # hidden_layers: ${model.common.hidden_layers}
     dropout_rate: ${model.common.dropout_rate}
     activation: ${model.common.activation}
+
+num_variables: ${max_number_of_words}
+num_tags: ${num_tags}
+
+# 

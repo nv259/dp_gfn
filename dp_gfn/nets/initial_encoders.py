@@ -23,14 +23,11 @@ class StateEncoder(nn.Module):
         activation="ReLU",
         encode_label=False,
     ):
-        assert (label_embedding_dim != 0) ^ (
-            not encode_label
-        ), "Either label_embedding_dim or encode_label must be specified"
-        if (num_tags != 0) and (label_embedding_dim == 0):
-            print(
-                "warning: num_tags is specified but label_embedding_dim is not specified, label_embedding_dim will be set to node_embedding_dim"
-            )
-            label_embedding_dim = node_embedding_dim
+        # if (num_tags != 0) and (label_embedding_dim == 0):
+        #     print(
+        #         "warning: num_tags is specified but label_embedding_dim is not specified, label_embedding_dim will be set to node_embedding_dim"
+        #     )
+        #     label_embedding_dim = node_embedding_dim
 
         super(StateEncoder, self).__init__()
         self.num_variables = num_variables
@@ -126,7 +123,7 @@ class PrefEncoder(nn.Module):
                 param.requires_grad = False
 
         # Store auxiliary parameters
-        self.word_embedding_dim = self.bert_model.embeddings.word_embeddings
+        self.word_embedding_dim = self.bert_model.embeddings.word_embeddings.embedding_dim
         self.agg_func = agg_func
         self.max_word_length = max_word_length
 
@@ -181,19 +178,18 @@ class LabelScorer(nn.Module):
         hidden_layers=[512, 256],
         dropout_rate=0.1,
         activation="ReLU",
-        use_state_node_embeddings=True,
+        use_pretrained_embeddings=False,
     ):
-        if use_state_node_embeddings:
+        if use_pretrained_embeddings is False:
             print(
-                f"warning: use_state_node_embeddings is True, input_dim will be set to intermediate_dim ({intermediate_dim})"
+                f"warning: use_pretrained_embeddings is False, LabelScorer will use node embeddings from state instead"
             )
-            input_dim = intermediate_dim
 
         super(LabelScorer, self).__init__()
         self.num_tags = num_tags
-        self.use_state_node_embeddings = use_state_node_embeddings
+        self.use_pretrained_embeddings = use_pretrained_embeddings
 
-        if not self.use_state_node_embeddings:
+        if self.use_pretrained_embeddings:
             self.mlp_head = MLP(
                 input_dim, intermediate_dim, hidden_layers, dropout_rate, activation
             )
@@ -217,8 +213,8 @@ class LabelScorer(nn.Module):
         self.b = nn.Parameter(b)
 
     def forward(self, heads, deps) -> torch.Tensor:
-        lab_heads = self.mlp_head(heads) if not self.use_state_node_embeddings else heads
-        lab_deps = self.mlp_dep(deps) if not self.use_state_node_embeddings else deps
+        lab_heads = self.mlp_head(heads) if self.use_pretrained_embeddings else heads
+        lab_deps = self.mlp_dep(deps) if self.use_pretrained_embeddings else deps
 
         # Biaffine layer
         head_scores = lab_heads @ self.Wh

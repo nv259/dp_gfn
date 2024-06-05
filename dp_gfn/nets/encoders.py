@@ -46,9 +46,12 @@ class Backbone(nn.Module):
         
         self.layers = nn.ModuleList([encoder_block for _ in range(num_layers)])
     
-    def forward(self, x):
+    def forward(self, x, aux=None):
         for layer in self.layers:
-            x = layer(x)
+            if aux is not None:
+                x = layer(x, aux)
+            else: 
+                x = layer(x)
             
         return self.layers(x)    
     

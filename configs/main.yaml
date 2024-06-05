@@ -5,12 +5,12 @@ defaults:
 model:
     # common hyperparams (all sub-models will inherit these hyperparams if not specified)
     common:
-        node_embedding_dim: 256
-        label_embedding_dim: 256
+        node_embedding_dim: 128
+        label_embedding_dim: 128
         hidden_layers: [256, 128]
         dropout_rate: 0.1
         activation: ReLU
-    
+     
     # pref_encoder:
 
     state_encoder:
@@ -22,10 +22,13 @@ model:
     # label_scorer:
 
     # output_logits:
+        # _partial_: True
 
     # output_Z:
+        # _partial_: True
 
 max_number_of_words: 158
 num_tags: 60
 init_label_embeddings: False
 seed: 42
+device: cuda
