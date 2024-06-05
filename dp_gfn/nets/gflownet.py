@@ -36,7 +36,6 @@ class DPGFlowNet(nn.Module):
         self.num_variables = num_variables  
         self.num_tags = num_tags + 2    # including edge-from-ROOT & no-edge
         self.init_label_embeddings = init_label_embeddings
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
         # 1. Initial Encoders
         self.pref_encoder = pref_encoder
@@ -74,19 +73,22 @@ class DPGFlowNet(nn.Module):
 
     def Z_param(self):
         return self.output_Z_mod.parameters()
-
+    
+    def bert_params(self):
+        return self.pref_encoder.parameters()
+    
+    def state_params(self):
+        return self.state_encoder.parameters()   
+    
     def model_params(self):
         return (
-            list(self.pref_encoder.parameters())
-            + list(self.state_encoder.parameters())
+            list(self.state_encoder.parameters())
             + list(self.backbone.parameters())
             + list(self.label_scorer.parameters())
             + list(self.output_logits.parameters())
         )
 
     def forward(self, edges, labels=None, mask=None):
-        edges = edges.to(self.device)
-        
         edges = self.backbone(edges, labels)
         
         logits = self.logits(edges)
