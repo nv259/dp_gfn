@@ -31,6 +31,7 @@ class StateEncoder(nn.Module):
 
         super(StateEncoder, self).__init__()
         self.num_variables = num_variables
+        self.num_tags = num_tags + 2
         self.encode_label = encode_label                # Whether to encode the label information 
                                                         # in the state representation
 
@@ -55,7 +56,7 @@ class StateEncoder(nn.Module):
 
         if encode_label:
             # num_embeddings = len( {labels} v {edge-less} v {ROOT-edge})
-            self.label_embedding = nn.Embedding(num_tags, label_embedding_dim)
+            self.label_embedding = nn.Embedding(self.num_tags, label_embedding_dim)
 
     def forward(self, word_embeddings, adjacency):
         assert (
@@ -186,7 +187,7 @@ class LabelScorer(nn.Module):
             )
 
         super(LabelScorer, self).__init__()
-        self.num_tags = num_tags
+        self.num_tags = num_tags + 2
         self.use_pretrained_embeddings = use_pretrained_embeddings
 
         if self.use_pretrained_embeddings:
@@ -197,19 +198,19 @@ class LabelScorer(nn.Module):
                 input_dim, intermediate_dim, hidden_layers, dropout_rate, activation
             )
 
-        W = torch.randn(num_tags, intermediate_dim, intermediate_dim)
+        W = torch.randn(self.num_tags, intermediate_dim, intermediate_dim)
         self.W = nn.Parameter(W)
         nn.init.xavier_uniform_(self.W)
 
-        Wh = torch.randn(intermediate_dim, num_tags)
+        Wh = torch.randn(intermediate_dim, self.num_tags)
         self.Wh = nn.Parameter(Wh)
         nn.init.xavier_uniform_(self.Wh)
 
-        Wd = torch.randn(intermediate_dim, num_tags)
+        Wd = torch.randn(intermediate_dim, self.num_tags)
         self.Wd = nn.Parameter(Wd)
         nn.init.xavier_uniform_(self.Wd)
 
-        b = torch.randn(num_tags)
+        b = torch.randn(self.num_tags)
         self.b = nn.Parameter(b)
 
     def forward(self, heads, deps) -> torch.Tensor:

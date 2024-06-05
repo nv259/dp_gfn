@@ -97,10 +97,11 @@ class LinearTransformerBlock(nn.Module):
         self.attn_dropout = attn_dropout
         self.mlp_dropout = mlp_dropout
         self.label_embedded = label_embedded
+        self.num_tags = num_tags + 2
         
         if (not label_embedded) or (d_label != 0):
             self.label_embeddings = [
-                nn.Embedding(num_tags, d_label) for _ in range(2)
+                nn.Embedding(self.num_tags, d_label) for _ in range(2)
             ]
         self.layer_norms = [nn.LayerNorm(self.input_dim) for _ in range(2)]
 

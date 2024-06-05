@@ -34,7 +34,7 @@ class DPGFlowNet(nn.Module):
     ):
         super(DPGFlowNet, self).__init__()
         self.num_variables = num_variables  
-        self.num_tags = num_tags    # including edge-from-ROOT & no-edge
+        self.num_tags = num_tags + 2    # including edge-from-ROOT & no-edge
         self.init_label_embeddings = init_label_embeddings
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         
