@@ -2,6 +2,7 @@ import torch
 import conllu
 import networkx as nx
 from torch.utils.data import DataLoader, Dataset
+import xml.etree.ElementTree as ET
 
 
 def parse_conllu_for_edges(current_node: conllu.models.TokenTree, parent_index: int):
@@ -25,6 +26,19 @@ def adjacency_matrix_from_edges_list(edges_list, num_variables: int) -> torch.Te
         G[source, target] = tag
      
     return G
+
+
+def get_dependency_relation_dict(path_to_stats_file: str) -> dict:
+    tree = ET.parse(path_to_stats_file)
+    root = tree.getroot()
+    deps = root.find('deps')
+    
+    rel_id = {}
+    for id, dep in enumerate(deps.findall('dep')):
+        rel = dep.get('name')
+        rel_id[rel] = id
+        
+    return rel_id 
 
 
 class BaseDataset(Dataset):
