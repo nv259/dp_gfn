@@ -11,17 +11,17 @@ class TestLinearMultiHeadAttention(unittest.TestCase):
         batch_size = 1
         target_len = 160 ** 2
         source_len = 160 ** 2           
-        input_size = 10 * 3    # | source_dim | target_dim | label_dim | 
+        input_dim = 10 * 3    # | source_dim | target_dim | label_dim | 
         num_heads = 4
         d_k = 64
         d_model = d_k * num_heads
 
-        query = torch.randn(batch_size, target_len, input_size)
-        key = torch.randn(batch_size, source_len, input_size)
-        value = torch.randn(batch_size, source_len, input_size)
+        query = torch.randn(batch_size, target_len, input_dim)
+        key = torch.randn(batch_size, source_len, input_dim)
+        value = torch.randn(batch_size, source_len, input_dim)
 
         # Create LinearMultiHeadAttention instance
-        model = LinearMultiHeadAttention(input_size, num_heads, d_k, d_model=d_model)
+        model = LinearMultiHeadAttention(input_dim, num_heads, d_k, d_model=d_model)
 
         # Compute attention output
         output = model(query, key, value)
@@ -31,11 +31,11 @@ class TestLinearMultiHeadAttention(unittest.TestCase):
 
     def test_projection(self):
         # Define input tensor
-        input_size = 10
-        x = torch.randn(1, input_size)
+        input_dim = 10
+        x = torch.randn(1, input_dim)
 
         # Create LinearMultiHeadAttention instance
-        model = LinearMultiHeadAttention(input_size, 1, 8)
+        model = LinearMultiHeadAttention(input_dim, 1, 8)
 
         # Apply projection
         projected_x = model.projection(x)
@@ -48,17 +48,17 @@ class TestLinearMultiHeadAttention(unittest.TestCase):
         batch_size = 1
         target_len = 160 ** 2
         source_len = 160 ** 2           
-        input_size = 10 * 3    # | source_dim | target_dim | label_dim | 
+        input_dim = 10 * 3    # | source_dim | target_dim | label_dim | 
         num_heads = 4
         d_k = 64
 
-        query = torch.randn(batch_size, target_len, input_size)
-        key = torch.randn(batch_size, source_len, input_size)
-        value = torch.randn(batch_size, source_len, input_size)
+        query = torch.randn(batch_size, target_len, input_dim)
+        key = torch.randn(batch_size, source_len, input_dim)
+        value = torch.randn(batch_size, source_len, input_dim)
         mask = torch.randn(batch_size, target_len, source_len)
 
         # Create LinearMultiHeadAttention instance
-        model = LinearMultiHeadAttention(input_size, num_heads, d_k)
+        model = LinearMultiHeadAttention(input_dim, num_heads, d_k)
 
         # Test with mask
         with self.assertRaises(NotImplementedError):
