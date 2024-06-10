@@ -119,4 +119,22 @@ class BaseDataset(Dataset):
         if self.return_edges:
             return {"text": item.metadata['text'], "graph": G, "edges": edges_list}
         else:  
-            return {"text": item.metadata['text'], "graph": G}
+            return {"text": item.metadata['text'], "graph": G} 
+
+
+def get_dataloader(path_to_conllu_file: str, max_num_nodes: int = 160, return_edges: bool = True, store_nx_graph: bool = False, batch_size: int = 1, shuffle: bool = True, num_workers: int = 0):
+    dataset = BaseDataset(
+        path_to_conllu_file=path_to_conllu_file,
+        max_num_nodes=max_num_nodes, 
+        return_edges=return_edges,
+        store_nx_graph=store_nx_graph,
+    )
+    
+    if store_nx_graph:  
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_nx_graphs, num_workers=num_workers)
+    else: 
+        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
+    
+    return dataloader
+    
+    
