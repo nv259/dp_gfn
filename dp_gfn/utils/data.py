@@ -92,6 +92,7 @@ class BaseDataset(Dataset):
             os.path.join(os.path.dirname(path_to_conllu_file), "stats.xml")
         )
         self.id_rel = {v: k for k, v in self.rel_id.items()}
+        self.num_tags = len(self.rel_id)
 
         self.data = []
         with open(self.path, "r", encoding="utf-8") as data_file:
@@ -122,7 +123,7 @@ class BaseDataset(Dataset):
             return {"text": item.metadata['text'], "graph": G} 
 
 
-def get_dataloader(path_to_conllu_file: str, max_num_nodes: int = 160, return_edges: bool = True, store_nx_graph: bool = False, batch_size: int = 1, shuffle: bool = True, num_workers: int = 0):
+def get_dataloader(path_to_conllu_file: str, max_num_nodes: int = 160, return_edges: bool = True, store_nx_graph: bool = False, batch_size: int = 1, shuffle: bool = True, num_workers: int = 0, get_num_tags: bool = False):
     dataset = BaseDataset(
         path_to_conllu_file=path_to_conllu_file,
         max_num_nodes=max_num_nodes, 
@@ -135,6 +136,9 @@ def get_dataloader(path_to_conllu_file: str, max_num_nodes: int = 160, return_ed
     else: 
         dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
     
-    return dataloader
+    if get_num_tags:
+        return dataloader, dataset.num_tags
+    else: 
+        return dataloader
     
     

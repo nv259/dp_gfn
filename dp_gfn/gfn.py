@@ -1,26 +1,23 @@
 import torch
 from dp_gfn.utils import masking
+from dp_gfn.nets.gflownet import DPGFlowNet
 
-
-def get_reward():
-    pass
-
-
-def evaluation():
-    pass
-
-
-def sample():
-    pass
-
-
-def step():
-    pass
-
-
-def setup():
-    pass
-
+class DPGFN():
+    def __init__(self, cfg, model: DPGFlowNet, device=None):
+        pass 
+    
+    def train(self, train_loader, val_loader):
+        pass
+    
+    def step(self, ): 
+        pass
+    
+    def evaluation(self, ):
+        pass
+    
+    def val_step(self, ):
+        pass
+    
 
 class StateBatch:
     def __init__(
@@ -29,7 +26,7 @@ class StateBatch:
         labels: torch.Tensor,
         num_words: torch.Tensor,
         num_variables: torch.Tensor,
-        device: torch.Tensor,
+        device,
         root_first=True,
     ):
         self.num_variables = num_variables

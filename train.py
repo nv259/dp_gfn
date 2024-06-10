@@ -8,6 +8,7 @@ import torch
 from omegaconf import DictConfig, OmegaConf
 
 from dp_gfn.utils.misc import flatten_config
+from dp_gfn.utils.data import get_dataloader
 
 
 def set_seed(seed=42):
@@ -43,10 +44,35 @@ def main(config):
     with open("hydra_config.txt", "w") as f:
         f.write(OmegaConf.to_yaml(config))
 
+    logging.info("Loading Data")
+    train_dataloader, num_tags = get_dataloader(
+        path_to_conllu_file=config.train_path,
+        max_num_nodes=config.max_number_of_words,
+        batch_size=config.batch_size,
+        num_workers=config.num_workers, 
+        get_num_tags=True
+    )
+    
+    try:
+        val_dataloader = get_dataloader(
+            path_to_conllu_file=config.train_path.replace('train', 'dev'),
+            max_num_nodes=config.max_number_of_words,
+            batch_size=config.batch_size,
+            num_workers=config.num_workers,
+            get_num_tags=False
+        )
+    except:
+        val_dataloader = None
+        logging.warning("No validation data found")
+    
     logging.info("Initializing Model")
-    model = hydra.utils.instantiate(config.model)
-    check_model_num_tags(model, config.num_tags)
-    logging.info("Model Initialized")
+    model = hydra.utils.instantiate(config.model, num_tags=num_tags)
+    check_model_num_tags(model, num_tags)
+    
+    # logging.info("Initializing Algorithm")
+    # algorithm = hydra.utils.instantiate(config.algorithm)
+    # algorithm.train(model, config)
+    
 
 
 if __name__ == "__main__":

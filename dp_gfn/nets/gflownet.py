@@ -44,18 +44,19 @@ class DPGFlowNet(nn.Module):
         
         self.state_encoder = state_encoder(
             word_embedding_dim=self.pref_encoder.word_embedding_dim,
+            num_tags=self.num_tags
         ) 
         if verbose:
             logging.info(f"State encoder initialized")
         
         # TODO: Implement other architectures for backbone
         # 2. Main encoder 
-        self.backbone = backbone
+        self.backbone = backbone(num_tags=self.num_tags)
         if verbose:
             logging.info(f"Backbone initialized")
 
         # TODO: Re-implement for input heads and deps are from plms, maybe?
-        self.label_scorer = label_scorer
+        self.label_scorer = label_scorer(num_tags=self.num_tags)
         if verbose:
             logging.info(f"Label scorer initialized")
         
@@ -70,6 +71,14 @@ class DPGFlowNet(nn.Module):
 
     def Z(self, pref):
         return self.output_Z_mod(pref).sum(1)
+
+    def forward(self, edges, labels=None, mask=None):
+        edges = self.backbone(edges, labels)
+        
+        logits = self.logits(edges)
+        logits = mask_logits(logits, mask)
+
+        return logits
 
     def Z_param(self):
         return self.output_Z_mod.parameters()
@@ -87,11 +96,4 @@ class DPGFlowNet(nn.Module):
             + list(self.label_scorer.parameters())
             + list(self.output_logits.parameters())
         )
-
-    def forward(self, edges, labels=None, mask=None):
-        edges = self.backbone(edges, labels)
         
-        logits = self.logits(edges)
-        logits = mask_logits(logits, mask)
-
-        return logits

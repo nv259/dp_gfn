@@ -14,7 +14,7 @@ class StateEncoder(nn.Module):
     def __init__(
         self,
         num_variables,
-        num_tags=0, # FIXME: Protential error 
+        num_tags, # FIXME: Protential error 
         word_embedding_dim=768,
         node_embedding_dim=128,
         label_embedding_dim=0,
@@ -23,15 +23,9 @@ class StateEncoder(nn.Module):
         activation="ReLU",
         encode_label=False,
     ):
-        # if (num_tags != 0) and (label_embedding_dim == 0):
-        #     print(
-        #         "warning: num_tags is specified but label_embedding_dim is not specified, label_embedding_dim will be set to node_embedding_dim"
-        #     )
-        #     label_embedding_dim = node_embedding_dim
-
         super(StateEncoder, self).__init__()
         self.num_variables = num_variables
-        self.num_tags = num_tags + 2
+        self.num_tags = num_tags
         self.encode_label = encode_label                # Whether to encode the label information 
                                                         # in the state representation
 
@@ -53,9 +47,12 @@ class StateEncoder(nn.Module):
             dropout_rate,
             activation,
         )
-
+        
+        # Initial no-edge embedding   
+        self.constant_label = nn.Parameter(torch.zeros(1, label_embedding_dim))
+        nn.init.xavier_uniform_(self.constant_label)
+        
         if encode_label:
-            # num_embeddings = len( {labels} v {edge-less} v {ROOT-edge})
             self.label_embedding = nn.Embedding(self.num_tags, label_embedding_dim)
 
     def forward(self, word_embeddings, adjacency):
@@ -187,7 +184,7 @@ class LabelScorer(nn.Module):
             )
 
         super(LabelScorer, self).__init__()
-        self.num_tags = num_tags + 2
+        self.num_tags = num_tags
         self.use_pretrained_embeddings = use_pretrained_embeddings
 
         if self.use_pretrained_embeddings:
@@ -197,6 +194,11 @@ class LabelScorer(nn.Module):
             self.mlp_dep = MLP(
                 input_dim, intermediate_dim, hidden_layers, dropout_rate, activation
             )
+        else:
+            self.mlp_head = nn.Linear(input_dim, intermediate_dim)
+            self.mlp_dep = nn.Linear(input_dim, intermediate_dim)
+
+        # Biaffine layer
 
         W = torch.randn(self.num_tags, intermediate_dim, intermediate_dim)
         self.W = nn.Parameter(W)
@@ -214,8 +216,8 @@ class LabelScorer(nn.Module):
         self.b = nn.Parameter(b)
 
     def forward(self, heads, deps) -> torch.Tensor:
-        lab_heads = self.mlp_head(heads) if self.use_pretrained_embeddings else heads
-        lab_deps = self.mlp_dep(deps) if self.use_pretrained_embeddings else deps
+        lab_heads = self.mlp_heads(heads)
+        lab_deps = self.mlp(deps)
 
         # Biaffine layer
         head_scores = lab_heads @ self.Wh

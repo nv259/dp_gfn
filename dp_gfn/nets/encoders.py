@@ -38,13 +38,13 @@ class MLP(nn.Module):
 
 class Backbone(nn.Module):
     
-    def __init__(self, encoder_block, num_layers, input_dim, output_dim):
+    def __init__(self, encoder_block, num_layers, input_dim, output_dim, num_tags):
         super(Backbone, self).__init__()
         self.num_layers = num_layers
         self.input_dim = input_dim
         self.output_dim = output_dim
         
-        self.layers = nn.ModuleList([encoder_block for _ in range(num_layers)])
+        self.layers = nn.ModuleList([encoder_block(num_tags=num_tags) for _ in range(num_layers)])
     
     def forward(self, x, aux=None):
         for layer in self.layers:
@@ -60,6 +60,7 @@ class LinearTransformerBlock(nn.Module):
     def __init__(
         self,
         input_dim:int,
+        num_tags: Optional[int],
         num_heads: int,
         d_k: int,
         d_v: Optional[int] = None,
@@ -70,23 +71,14 @@ class LinearTransformerBlock(nn.Module):
         dropout_rate: float = 0.1,
         eps: float = 1e-6,
         label_embedded: bool = False,
-        num_tags: Optional[int] = 0,
         d_label: Optional[int] = 0,
     ):
-        assert ((num_tags != 0) ^ label_embedded), "Either label_embedded or d_label must be True (d_label != 0)"
         assert input_dim == d_model + d_label, "input_dim must be equal to d_model + d_label"
         
         if label_embedded and (input_dim != d_model):
             print("warning: label_embedded is True but d_model is not equal to input_dim, using input_dim instead")
             d_model = input_dim
-            
-        if not label_embedded and (input_dim != d_model + d_label):
-            print("warning: label_embedded is False but input_dim is not equal to d_model + d_label, using d_label = input_dim - d_model instead")
-            d_label = input_dim - d_model 
-            
-            if d_label <= 0: 
-                raise NotImplementedError("d_label must be greater than 0")
-             
+         
         super(LinearTransformerBlock, self).__init__()
 
         self.input_dim = input_dim
@@ -97,11 +89,16 @@ class LinearTransformerBlock(nn.Module):
         self.attn_dropout = attn_dropout
         self.mlp_dropout = mlp_dropout
         self.label_embedded = label_embedded
-        self.num_tags = num_tags + 2
+        self.categorical_label = not label_embedded
+        self.num_tags = num_tags
         
         if (not label_embedded) or (d_label != 0):
             self.label_embeddings = [
                 nn.Embedding(self.num_tags, d_label) for _ in range(2)
+            ]
+        else:
+            self.label_embeddings = [
+                nn.Linear(self.d_label, self.d_label) for _ in range(2)
             ]
         self.layer_norms = [nn.LayerNorm(self.input_dim) for _ in range(2)]
 
@@ -118,23 +115,26 @@ class LinearTransformerBlock(nn.Module):
         self.dense = MLP(
             input_dim=self.input_dim,
             output_dim=self.d_model,
-            hidden_layers=[self.d_model],
+            hidden_layers=[(self.input_dim + self.d_model) // 2],
             activation=activation,
             # dropout_rate=self.mlp_dropout
         )
 
     def forward(self, x, labels=None):
         # Embed labels in case labels is retained
-        labels_attn = (
-            self.label_embeddings[0](labels)
-            if not self.label_embedded 
-            else torch.zeros(x.shape[0], x.shape[1], 0)
-        )
-        labels_dense = (
-            self.label_embeddings[1](labels) 
-            if not self.label_embedded
-            else labels_attn
-        )
+        labels_attn = self.label_embedings[0](labels)
+        labels_dense = self.label_embedings[1](labels)
+
+        # labels_attn = (
+        #     self.label_embeddings[0](labels)
+        #     if not self.label_embedded 
+        #     else torch.zeros(x.shape[0], x.shape[1], 0)
+        # )
+        # labels_dense = (
+        #     self.label_embeddings[1](labels) 
+        #     if not self.label_embedded
+        #     else labels_attn
+        # )
 
         # Layer normalization
         hiddens = self.layer_norms[0](torch.cat([x, labels_attn], dim=-1))
