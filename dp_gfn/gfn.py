@@ -1,14 +1,55 @@
 import torch
 from dp_gfn.utils import masking
 from dp_gfn.nets.gflownet import DPGFlowNet
+from torch.utils.data import DataLoader
+import hydra
+from tqdm import tqdm
+
 
 class DPGFN():
-    def __init__(self, cfg, model: DPGFlowNet, device=None):
-        pass 
-    
-    def train(self, train_loader, val_loader):
+    def __init__(self, config, model: DPGFlowNet, train_loader: DataLoader, val_loader: DataLoader):
+        super().__init__()
+        self.config = config
+        self.model = model
+        self.train_loader = train_loader 
+        self.val_loader = val_loader
+        self.score_fn = hydra.utils.instantiate(config.algorithm.score_fn)
+        self.loss_fn = hydra.utils.instantiate(config.algorithm.train.loss_fn)
+        
+        self.initialize_vars(config.algorithm) 
+        self.init_policy() 
+       
+    def initialize_var(self):
+        config = self.config.algorithm
+        self.num_tags = self.model.num_tags
+        self.backward_policy = config.backward_policy
+        self.score_fn = config.score_fn
+        
+        # train hyperparameters
+        config = config.train
+        self.n_grad_accumulation_steps = config.n_grad_accumulation_steps
+        self.max_steps = config.max_steps
+        self.eval_on_train = config.eval_on_train
+        self.exploration_rate = config.exploration_rate
+        self.stimulated_annealing = self.stimulated_annealing   # TODO: Future work
+        self.clip_grad = config.clip_grad   
+         
+    def init_policy(self):
+        self.model.to(self.config.device)
+        
+        policy_lr = self.config.algorithm.train.optimizer.policy_lr  
+        Z_lr = self.config.algorithm.train.optimizer.Z_lr 
+        bert_factor = self.config.algorithm.train.optimizer.bert_factor
+        weight_decay = self.config.algorithm.train.optimizer.weight_decay
+        
+        # TODO: Implement lr_scheduler    
+        self.opt_bert = torch.optim.Adam(self.model.bert_params(), lr=policy_lr * bert_factor, weight_decay=weight_decay, betas=(0.9, 0.999))
+        self.opt_model = torch.optim.Adam(self.model.flow_params(), lr=policy_lr, weight_decay=weight_decay, betas=(0.9, 0.999))
+        self.opt_Z = torch.optim.Adam(self.model.Z_params(), lr=Z_lr, weight_decay=weight_decay, betas=(0.9, 0.999)) 
+
+    def train(self):
         pass
-    
+     
     def step(self, ): 
         pass
     
