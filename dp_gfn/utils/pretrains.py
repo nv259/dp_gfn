@@ -46,7 +46,7 @@ def token_embeddings_to_word_embeddings(
 
 def batch_token_embeddings_to_batch_word_embeddings(
     tokens, token_embeddings, agg_func="mean", max_word_length=160
-):
+) -> torch.Tensor:
     batch_size = token_embeddings.shape[0]
     batch_word_embeddings = []
 

@@ -1,9 +1,13 @@
-import torch
-from dp_gfn.utils import masking
-from dp_gfn.nets.gflownet import DPGFlowNet
-from torch.utils.data import DataLoader
+import os
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+
 import hydra
+import torch
+from torch.utils.data import DataLoader
 from tqdm import tqdm
+
+from dp_gfn.nets.gflownet import DPGFlowNet
+from dp_gfn.utils import masking
 
 
 class DPGFN:
@@ -11,21 +15,19 @@ class DPGFN:
         self,
         config,
         model: DPGFlowNet,
-        train_loader: DataLoader,
-        val_loader: DataLoader,
     ):
         super().__init__()
         self.config = config
         self.model = model
-        self.train_loader = train_loader
-        self.val_loader = val_loader
-        self.score_fn = hydra.utils.instantiate(config.algorithm.score_fn)
-        self.loss_fn = hydra.utils.instantiate(config.algorithm.train.loss_fn)
+        # self.score_fn = hydra.utils.instantiate(config.algorithm.score_fn)
+        # self.loss_fn = hydra.utils.instantiate(config.algorithm.train.loss_fn)
 
-        self.initialize_vars(config.algorithm)
+        self.initialize_vars()
         self.init_policy()
 
-    def initialize_var(self):
+    def initialize_vars(self):
+        self.device = self.config.device 
+        
         config = self.config.algorithm
         self.num_tags = self.model.num_tags
         self.backward_policy = config.backward_policy
@@ -37,7 +39,7 @@ class DPGFN:
         self.max_steps = config.max_steps
         self.eval_on_train = config.eval_on_train
         self.exploration_rate = config.exploration_rate
-        self.stimulated_annealing = self.stimulated_annealing  # TODO: Future work
+        # self.stimulated_annealing = self.stimulated_annealing  # TODO: Future work
         self.clip_grad = config.clip_grad
 
     def init_policy(self):
@@ -68,11 +70,26 @@ class DPGFN:
             betas=(0.9, 0.999),
         )
 
-    def train(self):
-        pass
+    def train(self, train_loader: DataLoader, val_loader: DataLoader):
+        losses, rewards = [], []
+        for step in tqdm(range(self.max_steps)):
+            assert self.model.training == True
+            # 1. sample batch
+            batch = next(iter(train_loader))
+            # 2. initialize s0 (bs)
+            initial_state = self.model.create_initial_state(batch["text"])   
+            # 3. sample trajectories
+            #   a. model.forward() -> policy
+            #   b. sample policy (masking + exploration ~ exploitation)
+            #   c. states step 
+            self.step(initial_state)
+            # 4. Compute reward
+            # 5. Compute loss
+            # 6. optimizer.step()
 
     def step(
         self,
+        initial_state: torch.Tensor,
     ):
         pass
 

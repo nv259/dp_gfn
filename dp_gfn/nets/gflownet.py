@@ -80,7 +80,13 @@ class DPGFlowNet(nn.Module):
 
         return logits
 
-    def Z_param(self):
+    def create_initial_state(self, pref) -> torch.Tensor:
+        word_embeddings = self.pref_encoder(pref)
+        state_embeddings = self.state_encoder(word_embeddings)
+        
+        return state_embeddings 
+        
+    def Z_params(self):
         return self.output_Z_mod.parameters()
     
     def bert_params(self):
@@ -89,7 +95,7 @@ class DPGFlowNet(nn.Module):
     def state_params(self):
         return self.state_encoder.parameters()   
     
-    def model_params(self):
+    def flow_params(self):
         return (
             list(self.state_encoder.parameters())
             + list(self.backbone.parameters())

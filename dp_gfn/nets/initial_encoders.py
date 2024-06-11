@@ -49,28 +49,32 @@ class StateEncoder(nn.Module):
         )
         
         # Initial no-edge embedding   
-        self.constant_label = nn.Parameter(torch.zeros(1, label_embedding_dim))
+        self.constant_label = nn.Parameter(torch.zeros(1, 1, label_embedding_dim))
         nn.init.xavier_uniform_(self.constant_label)
         
         if encode_label:
             self.label_embedding = nn.Embedding(self.num_tags, label_embedding_dim)
 
-    def forward(self, word_embeddings, adjacency):
+    def forward(self, word_embeddings, adjacency=None):
         assert (
             word_embeddings.shape[1] <= self.num_variables
         ), "Number of word is too large"
-        assert adjacency.shape[1] == adjacency.shape[2] == self.num_variables
-
+        
         wh_embeddings = self.mlp_head(word_embeddings)
         wd_embeddings = self.mlp_dep(word_embeddings)
+        
+        if adjacency is not None:
+            assert adjacency.shape[1] == adjacency.shape[2] == self.num_variables
 
-        adjacency = adjacency.reshape(adjacency.shape[0], self.num_variables**2)
+            adjacency = adjacency.reshape(adjacency.shape[0], self.num_variables**2)
 
-        label_embeddings = (
-            self.label_embedding(adjacency)
-            if self.encode_label
-            else torch.zeros(adjacency.shape[0], self.num_variables**2, 0)
-        )
+            label_embeddings = (
+                self.label_embedding(adjacency)
+                if self.encode_label
+                else torch.zeros(adjacency.shape[0], self.num_variables**2, 0)
+            )
+        else: 
+            label_embeddings = self.constant_label.repeat(word_embeddings.shape[0], self.num_variables**2, 1)
 
         # Prime wh and wb to create n^2 arcs by linking wh_i with corresponding wd_i
         # e.g {h_0, h_0, h_0, h_1, h_1, h_1, h_2, h_2, h_2}
@@ -80,9 +84,12 @@ class StateEncoder(nn.Module):
 
         state_embeddings = torch.cat(
             [wh_embeddings, wd_embeddings, label_embeddings], dim=-1
-        )
-
-        return state_embeddings, adjacency
+        )   
+        
+        if adjacency is not None:
+            return state_embeddings, adjacency
+        else:
+            return state_embeddings
 
 
 class PrefEncoder(nn.Module):
@@ -128,7 +135,13 @@ class PrefEncoder(nn.Module):
     def forward(self, batch):
         tokens = self.tokenizer(
             batch, return_tensors="pt", padding="max_length", truncation=True
-        )
+        ) 
+        
+        device = self.bert_model.device        
+        tokens["input_ids"] = tokens["input_ids"].to(device)
+        tokens["attention_mask"] = tokens["attention_mask"].to(device)
+        tokens["token_type_ids"] = tokens["token_type_ids"].to(device)
+
         token_embeddings = self.bert_model(**tokens).last_hidden_state
 
         word_embeddings = batch_token_embeddings_to_batch_word_embeddings(
