@@ -1,5 +1,6 @@
 import os
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
+import math
 
 import hydra
 import torch
@@ -74,15 +75,14 @@ class DPGFN:
         losses, rewards = [], []
         for step in tqdm(range(self.max_steps)):
             assert self.model.training == True
-            # 1. sample batch
             batch = next(iter(train_loader))
-            # 2. initialize s0 (bs)
-            initial_state = self.model.create_initial_state(batch["text"])   
+            initial_states = self.model.create_initial_state(batch["text"])   
+            # batch = StateBatch(initial_states=initial_states, gold_tree=batch["graph"])
             # 3. sample trajectories
             #   a. model.forward() -> policy
             #   b. sample policy (masking + exploration ~ exploitation)
             #   c. states step 
-            self.step(initial_state)
+            self.step(initial_states)
             # 4. Compute reward
             # 5. Compute loss
             # 6. optimizer.step()
@@ -90,6 +90,7 @@ class DPGFN:
     def step(
         self,
         initial_state: torch.Tensor,
+        
     ):
         pass
 
@@ -107,39 +108,39 @@ class DPGFN:
 class StateBatch:
     def __init__(
         self,
-        edges: torch.Tensor,
-        labels: torch.Tensor,
-        num_words: torch.Tensor,
-        num_variables: torch.Tensor,
-        device,
-        root_first=True,
+        initial_states: torch.Tensor,
+        gold_tree: torch.Tensor,
+        root_first: bool = True, 
     ):
-        self.num_variables = num_variables
-        self.device = device
+        edges = initial_states
+        labels = initial_states
+        
+        self.num_variables = math.sqrt(initial_states.shape[0])
+        self.device = initial_states.device
         self.batch_size = edges.shape[0]
 
         self._data = {
-            "edges": edges.to(device),
-            "labels": labels.to(device),
+            "edges": edges,
+            "labels": labels,
+            "gold_tree": gold_tree,
             "mask": masking.encode(
                 masking.batched_base_mask(
-                    num_words=num_words,
-                    num_variables=num_variables,
+                    num_words=torch.ones(edges.shape[0], device=self.device),
+                    num_variables=self.num_variables,
                     root_first=root_first,
-                    device=device,
+                    device=self.device,
                 ).repeat(edges.shape[0], 1, 1)
             ),
             "adjacency": masking.encode(
-                torch.zeros(edges.shape[0], num_variables, num_variables, device=device)
+                torch.zeros(edges.shape[0], self.num_variables, self.num_variables, device=self.device)
             ),
             "isolated_root": torch.ones(
-                edges.shape[0], dtype=torch.bool, device=device
+                edges.shape[0], dtype=torch.bool, device=self.device
             ),
-            # "num_edges": torch.zeros(edges.shape[0], dtype=torch.int).to(device),
-            "num_words": num_words.to(device),
-            "done": torch.zeros(edges.shape[0], dtype=torch.bool, device=device),
+            "num_words": torch.ones(edges.shape[0]),
+            "done": torch.zeros(edges.shape[0], dtype=torch.bool, device=self.device),
         }
-        self._closure_T = torch.eye(num_variables, dtype=torch.bool, device=device)
+        self._closure_T = torch.eye(self.num_variables, dtype=torch.bool, device=sefl.device)
         self._closure_T = self._closure_T.repeat(edges.shape[0], 1, 1)
 
     def __getitem__(self, index: int, return_dict: bool = True):

@@ -44,7 +44,8 @@ class DPGFlowNet(nn.Module):
         
         self.state_encoder = state_encoder(
             word_embedding_dim=self.pref_encoder.word_embedding_dim,
-            num_tags=self.num_tags
+            num_tags=self.num_tags,
+            num_variables=self.num_variables
         ) 
         if verbose:
             logging.info(f"State encoder initialized")

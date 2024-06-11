@@ -130,7 +130,7 @@ class PrefEncoder(nn.Module):
         # Store auxiliary parameters
         self.word_embedding_dim = self.bert_model.embeddings.word_embeddings.embedding_dim
         self.agg_func = agg_func
-        self.max_word_length = max_word_length
+        self.max_word_length = max_word_length 
 
     def forward(self, batch):
         tokens = self.tokenizer(
