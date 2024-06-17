@@ -47,6 +47,13 @@ def base_mask(num_words: int, num_variables: int, root_first=True, device=torch.
 
 
 def mask_logits(logits, masks, MASKED_VALUE=1e-5):
-    assert logits.shape == masks.shape
+    masks = masks.reshape(logits.shape)
     
     return masks * logits + (1 - masks) * MASKED_VALUE
+
+
+def mask_uniform_logits(logits, masks):
+    masks = masks.reshape(logits.shape)
+    uniform_logits = torch.ones_like(logits) * 0.5
+    
+    return masks * uniform_logits + (1 - masks) * logits
