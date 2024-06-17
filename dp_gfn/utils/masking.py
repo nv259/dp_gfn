@@ -25,6 +25,8 @@ def batched_base_mask(num_words: torch.Tensor|list[int], num_variables: int, roo
     mask = mask.repeat(len(num_words), 1, 1)
     
     for batch_idx, num_word in enumerate(num_words):
+        num_word = int(num_word)
+        
         if root_first:
             mask[batch_idx, 0, 1 : num_word + 1] = True
         else:
