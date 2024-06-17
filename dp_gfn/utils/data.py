@@ -1,24 +1,28 @@
 import os
 import xml.etree.ElementTree as ET
 
-import conllu
 import networkx as nx
 import numpy as np
+
+import conllu
 import torch
 from torch.utils.data import DataLoader, Dataset
 
 
-def parse_conllu_for_edges(current_node: conllu.models.TokenTree, parent_index: int):
+def parse_token_tree(
+    current_node: conllu.models.TokenTree, tokens: dict[int:str], parent_index: int = 0
+):
     edges = []
 
     current_index = current_node.token["id"]
     edges.append((parent_index, current_index, current_node.token["deprel"]))
+    tokens[current_index] = current_node.token["form"]
 
     if current_node.children == 0:
         return edges
 
     for child_node in current_node.children:
-        edges += parse_conllu_for_edges(child_node, parent_index=current_index)
+        edges += parse_token_tree(child_node, parent_index=current_index, tokens=tokens)
 
     return edges
 
@@ -55,22 +59,32 @@ def collate_nx_graphs(batch):
         A dictionary containing a batched graph and text.
     """
 
-    graphs = [item['graph'] for item in batch]
-    text = [item['text'] for item in batch]
+    graphs = [item["graph"] for item in batch]
+    text = [item["text"] for item in batch]
+    num_words = [item["num_words"] for item in batch]
 
     # Find the maximum number of nodes in the batch
     max_num_nodes = max(len(graph.nodes) for graph in graphs)
 
     # Create a batched adjacency matrix
-    batched_graph = torch.zeros((len(batch), max_num_nodes, max_num_nodes), dtype=torch.int)
-    batched_labels = torch.zeros((len(batch), max_num_nodes, max_num_nodes), dtype=torch.int)
+    batched_graph = torch.zeros(
+        (len(batch), max_num_nodes, max_num_nodes), dtype=torch.int
+    )
+    batched_labels = torch.zeros(
+        (len(batch), max_num_nodes, max_num_nodes), dtype=torch.int
+    )
 
     for i, graph in enumerate(graphs):
         for u, v, data in graph.edges(data=True):
             batched_graph[i, u, v] = 1
-            batched_labels[i, u, v] = data['tag']
+            batched_labels[i, u, v] = data["tag"]
 
-    return {'graph': batched_graph, 'labels': batched_labels, 'text': text}
+    return {
+        "graph": batched_graph,
+        "labels": batched_labels,
+        "text": text,
+        "num_words": num_words,
+    }
 
 
 class BaseDataset(Dataset):
@@ -105,8 +119,13 @@ class BaseDataset(Dataset):
     def __getitem__(self, index):
         item = self.data[index]
 
-        edges_list = parse_conllu_for_edges(item, parent_index=0)
-        edges_list = [(source, target, self.rel_id[tag]) for source, target, tag in edges_list]
+        word_dict = {}
+        edges_list = parse_token_tree(item, tokens=word_dict)
+        edges_list = [
+            (source, target, self.rel_id[tag]) for source, target, tag in edges_list
+        ]
+        words_list = [word_dict[idx] for idx in range(1, len(word_dict) + 1)]
+        joined_words = " ".join(words_list)
 
         if self.store_nx_graph:
             G = nx.DiGraph()
@@ -116,29 +135,51 @@ class BaseDataset(Dataset):
             G = adjacency_matrix_from_edges_list(
                 edges_list, num_variables=self.max_num_nodes
             )
-        
-        if self.return_edges:
-            return {"text": item.metadata['text'], "graph": G, "edges": edges_list}
-        else:  
-            return {"text": item.metadata['text'], "graph": G} 
+
+        if (
+            self.return_edges
+        ):  # cannot batch because of the discrepancy of sizes between edges_lists
+            return {
+                "text": joined_words,
+                "graph": G,
+                "edges": edges_list,
+                "num_words": len(words_list),
+            }
+        else:
+            return {"text": joined_words, "graph": G, "num_words": len(words_list)}
 
 
-def get_dataloader(path_to_conllu_file: str, max_num_nodes: int = 160, return_edges: bool = True, store_nx_graph: bool = False, batch_size: int = 1, shuffle: bool = True, num_workers: int = 0, get_num_tags: bool = False):
+def get_dataloader(
+    path_to_conllu_file: str,
+    max_num_nodes: int = 160,
+    return_edges: bool = True,
+    store_nx_graph: bool = False,
+    batch_size: int = 1,
+    shuffle: bool = True,
+    num_workers: int = 0,
+    get_num_tags: bool = False,
+):
     dataset = BaseDataset(
         path_to_conllu_file=path_to_conllu_file,
-        max_num_nodes=max_num_nodes, 
+        max_num_nodes=max_num_nodes,
         return_edges=return_edges,
         store_nx_graph=store_nx_graph,
     )
-    
-    if store_nx_graph:  
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_nx_graphs, num_workers=num_workers)
-    else: 
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers)
-    
+
+    if store_nx_graph:
+        dataloader = DataLoader(
+            dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            collate_fn=collate_nx_graphs,
+            num_workers=num_workers,
+        )
+    else:
+        dataloader = DataLoader(
+            dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers
+        )
+
     if get_num_tags:
         return dataloader, dataset.num_tags
-    else: 
+    else:
         return dataloader
-    
-    
