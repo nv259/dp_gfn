@@ -26,6 +26,8 @@ class StateEncoder(nn.Module):
         super(StateEncoder, self).__init__()
         self.num_variables = num_variables
         self.num_tags = num_tags
+        self.node_embedding_dim = node_embedding_dim
+        self.label_embedding_dim = label_embedding_dim
         self.encode_label = encode_label                # Whether to encode the label information 
                                                         # in the state representation
 
@@ -35,25 +37,25 @@ class StateEncoder(nn.Module):
 
         self.mlp_head = MLP(
             word_embedding_dim,
-            node_embedding_dim,
+            self.node_embedding_dim,
             hidden_layers,
             dropout_rate,
             activation,
         )
         self.mlp_dep = MLP(
             word_embedding_dim,
-            node_embedding_dim,
+            self.node_embedding_dim,
             hidden_layers,
             dropout_rate,
             activation,
         )
         
         # Initial no-edge embedding   
-        self.constant_label = nn.Parameter(torch.zeros(1, 1, label_embedding_dim))
+        self.constant_label = nn.Parameter(torch.zeros(1, 1, self.label_embedding_dim))
         nn.init.xavier_uniform_(self.constant_label)
         
         if encode_label:
-            self.label_embedding = nn.Embedding(self.num_tags, label_embedding_dim)
+            self.label_embedding = nn.Embedding(self.num_tags, self.label_embedding_dim)
 
     def forward(self, word_embeddings, adjacency=None):
         assert (

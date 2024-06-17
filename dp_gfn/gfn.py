@@ -1,4 +1,5 @@
 import os
+
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 import math
 
@@ -27,8 +28,8 @@ class DPGFN:
         self.init_policy()
 
     def initialize_vars(self):
-        self.device = self.config.device 
-        
+        self.device = self.config.device
+
         config = self.config.algorithm
         self.num_tags = self.model.num_tags
         self.backward_policy = config.backward_policy
@@ -75,24 +76,32 @@ class DPGFN:
         losses, rewards = [], []
         for step in tqdm(range(self.max_steps)):
             assert self.model.training == True
+
             batch = next(iter(train_loader))
-            initial_states = self.model.create_initial_state(batch["text"])   
-            # batch = StateBatch(initial_states=initial_states, gold_tree=batch["graph"])
-            # 3. sample trajectories
-            #   a. model.forward() -> policy
-            #   b. sample policy (masking + exploration ~ exploitation)
-            #   c. states step 
-            self.step(initial_states)
-            # 4. Compute reward
-            # 5. Compute loss
-            # 6. optimizer.step()
+            initial_states = self.model.create_initial_state(batch["text"])
+            batch = StateBatch(
+                initial_states=initial_states,
+                gold_tree=batch["graph"],
+                num_words=batch["num_words"],
+                node_embedding_dim=self.model.state_encoder.node_embedding_dim,
+            )
+
+            self.step(batch)
+
+            # evaluation
 
     def step(
         self,
-        initial_state: torch.Tensor,
-        
+        batch: torch.Tensor,
     ):
-        pass
+        states, log_probs = self.sample_trajectory(batch)
+
+        # log_r = scores.calculate_reward()
+        # optimizer.zero_grad()
+        # compute tb loss
+        # optimizer.step()
+
+        return loss, reward
 
     def evaluation(
         self,
@@ -110,12 +119,14 @@ class StateBatch:
         self,
         initial_states: torch.Tensor,
         gold_tree: torch.Tensor,
-        root_first: bool = True, 
+        num_words: torch.Tensor,
+        node_embedding_dim: int = 128,
+        root_first: bool = True,
     ):
-        edges = initial_states
-        labels = initial_states
-        
-        self.num_variables = math.sqrt(initial_states.shape[0])
+        edges = initial_states[:, :, : node_embedding_dim * 2]
+        labels = initial_states[:, :, node_embedding_dim * 2 :]
+
+        self.num_variables = int(math.sqrt(initial_states.shape[1]))
         self.device = initial_states.device
         self.batch_size = edges.shape[0]
 
@@ -125,22 +136,27 @@ class StateBatch:
             "gold_tree": gold_tree,
             "mask": masking.encode(
                 masking.batched_base_mask(
-                    num_words=torch.ones(edges.shape[0], device=self.device),
+                    num_words=num_words,
                     num_variables=self.num_variables,
                     root_first=root_first,
                     device=self.device,
                 ).repeat(edges.shape[0], 1, 1)
             ),
             "adjacency": masking.encode(
-                torch.zeros(edges.shape[0], self.num_variables, self.num_variables, device=self.device)
-            ),
-            "isolated_root": torch.ones(
-                edges.shape[0], dtype=torch.bool, device=self.device
+                torch.zeros(
+                    edges.shape[0],
+                    self.num_variables,
+                    self.num_variables,
+                    device=self.device,
+                    dtype=torch.bool,
+                )
             ),
             "num_words": torch.ones(edges.shape[0]),
             "done": torch.zeros(edges.shape[0], dtype=torch.bool, device=self.device),
         }
-        self._closure_T = torch.eye(self.num_variables, dtype=torch.bool, device=sefl.device)
+        self._closure_T = torch.eye(
+            self.num_variables, dtype=torch.bool, device=self.device
+        )
         self._closure_T = self._closure_T.repeat(edges.shape[0], 1, 1)
 
     def __getitem__(self, index: int, return_dict: bool = True):
@@ -148,7 +164,6 @@ class StateBatch:
         labels = self._data["labels"][index]
         mask = self._data["mask"][index]
         adjacency = self._data["adjacency"][index]
-        isolated_root = self._data["isolated_root"][index]
         num_words = self._data["num_words"][index]
         done = self._data["done"][index]
 
@@ -158,12 +173,11 @@ class StateBatch:
                 "labels": labels,
                 "mask": mask,
                 "adjacency": adjacency,
-                "isolated_root": isolated_root,
                 "num_words": num_words,
                 "done": done,
             }
 
-        return edges, labels, mask, adjacency, isolated_root, num_words, done
+        return edges, labels, mask, adjacency, num_words, done
 
     def step(self, actions):
         sources = actions // self.num_variables
@@ -210,7 +224,6 @@ class StateBatch:
         self._data["labels"] = self._data["labels"].to(device)
         self._data["mask"] = self._data["mask"].to(device)
         self._data["adjacency"] = self._data["adjacency"].to(device)
-        self._data["isolated_root"] = self._data["isolated_root"].to(device)
         self._data["num_words"] = self._data["num_words"].to(device)
         self._data["done"] = self._data["done"].to(device)
         self._closure_T.to(device)
