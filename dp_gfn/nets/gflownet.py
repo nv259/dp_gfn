@@ -85,7 +85,10 @@ class DPGFlowNet(nn.Module):
         word_embeddings = self.pref_encoder(pref)
         state_embeddings = self.state_encoder(word_embeddings)
         
-        return state_embeddings 
+        # TODO: Incoporate num_words for more robust sentence embeddings
+        sentence_embeddings = word_embeddings.mean(1)      
+ 
+        return state_embeddings, sentence_embeddings
         
     def Z_params(self):
         return self.output_Z_mod.parameters()
