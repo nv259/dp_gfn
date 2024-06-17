@@ -1,15 +1,16 @@
+import math
 import os
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-import math
+from tqdm import tqdm
 
 import hydra
 import torch
-from torch.utils.data import DataLoader
-from tqdm import tqdm
-
 from dp_gfn.nets.gflownet import DPGFlowNet
 from dp_gfn.utils import masking
+from torch.distributions import Categorical
+from torch.utils.data import DataLoader
+
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 
 class DPGFN:
@@ -28,6 +29,8 @@ class DPGFN:
         self.init_policy()
 
     def initialize_vars(self):
+        self.max_number_of_words = self.config.max_number_of_words
+        self.batch_size = self.config.batch_size
         self.device = self.config.device
 
         config = self.config.algorithm
@@ -78,7 +81,9 @@ class DPGFN:
             assert self.model.training == True
 
             batch = next(iter(train_loader))
-            initial_states = self.model.create_initial_state(batch["text"])
+            initial_states, pref_embeddings = self.model.create_initial_state(
+                batch["text"]
+            )
             batch = StateBatch(
                 initial_states=initial_states,
                 gold_tree=batch["graph"],
@@ -86,14 +91,16 @@ class DPGFN:
                 node_embedding_dim=self.model.state_encoder.node_embedding_dim,
             )
 
-            self.step(batch)
+            self.step(batch, pref_embeddings)
 
             # evaluation
 
     def step(
         self,
-        batch: torch.Tensor,
+        batch: StateBatch,
+        pref_embeddings: torch.Tensor,
     ):
+        log_Z = self.model.Z(pref_embeddings)
         states, log_probs = self.sample_trajectory(batch)
 
         # log_r = scores.calculate_reward()
@@ -102,6 +109,42 @@ class DPGFN:
         # optimizer.step()
 
         return loss, reward
+
+    def sample_trajectory(self, batch: StateBatch, is_train: bool = True):
+        uniform_pol = torch.empty(self.batch_size, device=self.device).fill_(
+            self.exploration_rate
+        )
+        traj_log_prob = torch.zeros(self.batch_size, device=self.device)
+
+        for t in range(self.max_number_of_words):
+            logits = self.model(batch["edges"], batch["labels"], batch["mask"])
+            logits = masking.mask_logits(logits, batch["mask"])
+            uniform_logits = masking.uniform_mask_logits(logits, batch["mask"]).to(
+                self.device
+            )
+
+            exploitation_dist = Categorical(logits=logits)
+
+            policy_dist = Categorical(logits=logits)
+            actions = exploitation_dist.sample()
+
+            if is_train:
+                uniform_mix = torch.bernoulli(uniform_pol).bool()
+
+                exploration_dist = Categorical(logits=uniform_logits)
+                explore_actions = exploration_dist.sample()
+
+                actions = torch.where(uniform_mix, explore_actions, actions)
+
+            log_prob = policy_dist.log_prob(actions) * torch.logical_not(batch["done"])
+            traj_log_prob += log_prob
+
+            batch.step(actions)
+
+            if batch["done"].all() == True:
+                break
+
+        return batch, traj_log_prob
 
     def evaluation(
         self,
@@ -159,7 +202,13 @@ class StateBatch:
         )
         self._closure_T = self._closure_T.repeat(edges.shape[0], 1, 1)
 
-    def __getitem__(self, index: int, return_dict: bool = True):
+    def __len__(self):
+        return self.batch_size
+
+    def __getitem__(self, key: str):
+        return self._data[key]
+
+    def get_full_data(self, index: int):
         edges = self._data["edges"][index]
         labels = self._data["labels"][index]
         mask = self._data["mask"][index]
@@ -167,17 +216,14 @@ class StateBatch:
         num_words = self._data["num_words"][index]
         done = self._data["done"][index]
 
-        if return_dict:
-            return {
-                "edges": edges,
-                "labels": labels,
-                "mask": mask,
-                "adjacency": adjacency,
-                "num_words": num_words,
-                "done": done,
-            }
-
-        return edges, labels, mask, adjacency, num_words, done
+        return {
+            "edges": edges,
+            "labels": labels,
+            "mask": mask,
+            "adjacency": adjacency,
+            "num_words": num_words,
+            "done": done,
+        }
 
     def step(self, actions):
         sources = actions // self.num_variables
