@@ -52,8 +52,8 @@ class Backbone(nn.Module):
                 x = layer(x, aux)
             else: 
                 x = layer(x)
-            
-        return self.layers(x)    
+        
+        return x  
     
     
 class LinearTransformerBlock(nn.Module):
