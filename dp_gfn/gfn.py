@@ -97,7 +97,7 @@ class DPGFN:
 
     def step(
         self,
-        batch: StateBatch,
+        batch,
         pref_embeddings: torch.Tensor,
     ):
         log_Z = self.model.Z(pref_embeddings)
@@ -110,7 +110,7 @@ class DPGFN:
 
         return loss, reward
 
-    def sample_trajectory(self, batch: StateBatch, is_train: bool = True):
+    def sample_trajectory(self, batch, is_train: bool = True):
         uniform_pol = torch.empty(self.batch_size, device=self.device).fill_(
             self.exploration_rate
         )

@@ -33,11 +33,11 @@ class TestLinearTransformer(unittest.TestCase):
             d_model=64,
             label_embedded=False,
             num_tags=10,
-            d_label=64,
+            label_embedding_dim=64,
         )
         self.assertEqual(model.input_dim, 128)
         self.assertEqual(model.d_model, 64)
-        self.assertEqual(model.d_label, 64)
+        self.assertEqual(model.label_embedding_dim, 64)
         self.assertEqual(len(model.label_embeddings), 2)
         self.assertEqual(len(model.layer_norms), 2)
         self.assertIsInstance(model.attention, LinearMultiHeadAttention)
@@ -51,7 +51,7 @@ class TestLinearTransformer(unittest.TestCase):
             d_model=32 * 2,
             label_embedded=False,
             num_tags=10,
-            d_label=32,
+            label_embedding_dim=32,
         )
         x = torch.randn(2, 9, 32 * 2)
         labels = torch.randint(0, 10, (2, 9))
