@@ -119,7 +119,7 @@ class DPGFN:
         for t in range(self.max_number_of_words):
             logits = self.model(batch["edges"], batch["labels"], batch["mask"])
             logits = masking.mask_logits(logits, batch["mask"])
-            uniform_logits = masking.uniform_mask_logits(logits, batch["mask"]).to(
+            uniform_logits = masking.mask_uniform_logits(logits, batch["mask"]).to(
                 self.device
             )
 
