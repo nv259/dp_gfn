@@ -140,7 +140,7 @@ class DPGFN:
             traj_log_prob += log_prob
 
             print(actions)
-            print(batch["mask"].reshape(batch["mask"].shape[0], -1)[torch.arange(1, batch["mask"].shape[0] + 1), actions]) 
+            print(batch["mask"][0][actions[0].item()])
             
             batch.step(actions)
 
