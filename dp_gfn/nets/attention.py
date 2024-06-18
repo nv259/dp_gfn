@@ -85,7 +85,7 @@ class LinearMultiHeadAttention(nn.Module):
         
         # Free query, key, value, key_values from memory
         del query, key, value, key_values
-        torch.cuda.empty_cache()
+        # torch.cuda.empty_cache()
         # gc.collect() 
         
         attn = attn.reshape(attn.size(0), attn.size(1), self.num_heads * self.d_v)
