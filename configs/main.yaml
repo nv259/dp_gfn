@@ -28,7 +28,7 @@ model:
     # output_Z:
         # _partial_: True
 
-train_path: /content/drive/MyDrive/dp_gfn/data/ud-treebanks-v2.14/UD_English-Atis/en_atis-ud-train.conllu
+train_path: /media/doublemint/SharedDisk/repo/GFlowNets-DP/dp_gfn/data/ud-treebanks-v2.14/UD_English-Atis/en_atis-ud-train.conllu
 batch_size: 16
 num_workers: 4
 max_number_of_words: 158

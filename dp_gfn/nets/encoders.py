@@ -55,6 +55,9 @@ class Backbone(nn.Module):
         
         return x  
     
+    def __getitem__(self, index):
+        return self.layers[index]
+    
     
 class LinearTransformerBlock(nn.Module):
     def __init__(
