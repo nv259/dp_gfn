@@ -28,7 +28,7 @@ model:
     # output_Z:
         # _partial_: True
 
-train_path: ./data/ud-treebanks-v2.14/UD_English-Atis/en_atis-ud-train.conllu
+train_path: ../data/ud-treebanks-v2.14/UD_English-Atis/en_atis-ud-train.conllu
 batch_size: 16
 num_workers: 4
 max_number_of_words: 158
