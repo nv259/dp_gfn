@@ -83,10 +83,10 @@ class LinearMultiHeadAttention(nn.Module):
             "...thd,...hkd,...th->...thk", query, key_values, normalizer
         )
         
-        # Free query, key, value, key_values from memory (GPU and CPU)
+        # Free query, key, value, key_values from memory
         del query, key, value, key_values
         torch.cuda.empty_cache()
-        gc.collect() 
+        # gc.collect() 
         
         attn = attn.reshape(attn.size(0), attn.size(1), self.num_heads * self.d_v)
         attn = self.final_linear(attn)
