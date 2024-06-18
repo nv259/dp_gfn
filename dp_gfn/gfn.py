@@ -124,7 +124,7 @@ class DPGFN:
             )
 
             exploitation_dist = Categorical(logits=logits)
-
+            print(logits[0])
             policy_dist = Categorical(logits=logits)
             actions = exploitation_dist.sample()
             print(actions)
