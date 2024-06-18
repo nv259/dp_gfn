@@ -6,7 +6,7 @@ defaults:
 model:
     # common hyperparams (all sub-models will inherit these hyperparams if not specified)
     common:
-        node_embedding_dim: 64
+        node_embedding_dim: 64 
         label_embedding_dim: 64
         hidden_layers: [256, 128]
         dropout_rate: 0.1
@@ -29,7 +29,7 @@ model:
         # _partial_: True
 
 train_path: /content/drive/MyDrive/dp_gfn/data/ud-treebanks-v2.14/UD_English-Atis/en_atis-ud-train.conllu
-batch_size: 16
+batch_size: 4
 num_workers: 4
 max_number_of_words: 158
 init_label_embeddings: False
