@@ -3,7 +3,7 @@ from typing import Optional
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
+import gc
 
 class LinearMultiHeadAttention(nn.Module):
     """
@@ -82,7 +82,12 @@ class LinearMultiHeadAttention(nn.Module):
         attn = torch.einsum(
             "...thd,...hkd,...th->...thk", query, key_values, normalizer
         )
-
+        
+        # Free query, key, value, key_values from memory (GPU and CPU)
+        del query, key, value, key_values
+        torch.cuda.empty_cache()
+        gc.collect() 
+        
         attn = attn.reshape(attn.size(0), attn.size(1), self.num_heads * self.d_v)
         attn = self.final_linear(attn)
 
