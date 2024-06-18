@@ -127,13 +127,13 @@ class DPGFN:
 
             policy_dist = Categorical(logits=logits)
             actions = exploitation_dist.sample()
-
+            print(actions)
             if is_train:
                 uniform_mix = torch.bernoulli(uniform_pol).bool()
-
+                print(uniform_mix)
                 exploration_dist = Categorical(logits=uniform_logits)
                 explore_actions = exploration_dist.sample()
-
+                print(explore_actions)
                 actions = torch.where(uniform_mix, explore_actions, actions)
 
             log_prob = policy_dist.log_prob(actions) * torch.logical_not(batch["done"])

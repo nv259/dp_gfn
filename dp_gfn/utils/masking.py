@@ -52,8 +52,8 @@ def mask_logits(logits, masks, MASKED_VALUE=1e-5):
     return masks * logits + (1 - masks) * MASKED_VALUE
 
 
-def mask_uniform_logits(logits, masks):
+def mask_uniform_logits(logits, masks, MASKED_VALUE=1e-5):
     masks = masks.reshape(logits.shape)
     uniform_logits = torch.ones_like(logits) * 0.5
     
-    return masks * uniform_logits + (1 - masks) * logits
+    return masks * uniform_logits + (1 - masks) * MASKED_VALUE
