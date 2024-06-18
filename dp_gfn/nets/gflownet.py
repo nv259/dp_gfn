@@ -77,7 +77,6 @@ class DPGFlowNet(nn.Module):
         edges = self.backbone(edges, labels)
         logits = self.output_logits(edges)
         logits = logits.squeeze(-1)   
-        logits = mask_logits(logits, mask)
         
         return logits
 
