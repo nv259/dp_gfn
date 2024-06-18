@@ -140,7 +140,7 @@ class DPGFN:
             traj_log_prob += log_prob
 
             print(actions)
-            print(logits[actions]) 
+            print(batch["mask"][actions]) 
             
             batch.step(actions)
 
