@@ -75,10 +75,9 @@ class DPGFlowNet(nn.Module):
 
     def forward(self, edges, labels=None, mask=None):
         edges = self.backbone(edges, labels)
-        
+        print(edges.shape) 
         logits = self.output_logits(edges)
         print(logits.shape)
-        print(mask.shape)
         logits = mask_logits(logits, mask)
 
         return logits
