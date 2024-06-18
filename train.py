@@ -1,3 +1,4 @@
+import os
 import logging
 import random
 import warnings
@@ -33,6 +34,7 @@ def check_model_num_tags(model, orig_num_tags):
 
 @hydra.main(config_path="./configs", config_name="main")
 def main(config):
+    os.chdir(hydra.utils.get_original_cwd())
     config.seed = random.randint(1, 100000) if config.seed is None else config.seed
     config.model.num_variables = config.max_number_of_words + 1 
     config.max_number_of_words += 1 # ROOT token
