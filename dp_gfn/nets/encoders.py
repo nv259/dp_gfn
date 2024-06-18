@@ -33,6 +33,7 @@ class MLP(nn.Module):
         self.layers = nn.Sequential(*layers)
 
     def forward(self, x):
+        print(self.layers)
         return self.layers(x)
 
 
