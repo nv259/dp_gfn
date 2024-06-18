@@ -63,7 +63,7 @@ class DPGFlowNet(nn.Module):
         
         # TODO: Re-design the Z function
         # 3. Output layers
-        self.output_logits = output_logits(output_dim=self.num_variables ** 2)
+        self.output_logits = output_logits(output_dim=1)
         self.output_Z_mod = output_Z(input_dim=self.pref_encoder.word_embedding_dim)
         if verbose:
             logging.info(f"Output layers initialized")
