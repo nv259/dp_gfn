@@ -172,7 +172,8 @@ class StateBatch:
         self.num_variables = int(math.sqrt(initial_states.shape[1]))
         self.device = initial_states.device
         self.batch_size = edges.shape[0]
-
+        self.encoded_key = ["mask", "adjacency"]
+        
         self._data = {
             "edges": edges,
             "labels": labels,
@@ -206,6 +207,9 @@ class StateBatch:
         return self.batch_size
 
     def __getitem__(self, key: str):
+        if key in self.encoded_key:
+            return masking.decode(self._data[key])
+        
         return self._data[key]
 
     def get_full_data(self, index: int):
