@@ -22,6 +22,7 @@ def batched_base_mask(num_words: torch.Tensor|list[int], num_variables: int, roo
     Only edges from ROOT to 1-num_words nodes are left available (True). Otherwise, set to False.
     """
     print(num_words, len(num_words))
+    input()
     mask = torch.zeros(num_variables, num_variables, dtype=torch.bool, device=device) 
     mask = mask.repeat(len(num_words), 1, 1)
     
