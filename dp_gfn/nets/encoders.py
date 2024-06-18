@@ -71,19 +71,15 @@ class LinearTransformerBlock(nn.Module):
         dropout_rate: float = 0.1,
         eps: float = 1e-6,
         label_embedded: bool = False,
-        d_label: Optional[int] = 0,
+        label_embedding_dim: Optional[int] = 0,
     ):
-        assert input_dim == d_model + d_label, "input_dim must be equal to d_model + d_label"
-        
-        if label_embedded and (input_dim != d_model):
-            print("warning: label_embedded is True but d_model is not equal to input_dim, using input_dim instead")
-            d_model = input_dim
+        assert input_dim == d_model + label_embedding_dim, "input_dim must be equal to d_model + label_embedding_dim"
          
         super(LinearTransformerBlock, self).__init__()
 
         self.input_dim = input_dim
         self.d_model = d_model or d_k * num_heads
-        self.d_label = d_label
+        self.label_embedding_dim = label_embedding_dim
         # TODO: Implement dropout properly
         self.dropout_rate = dropout_rate
         self.attn_dropout = attn_dropout
@@ -91,16 +87,16 @@ class LinearTransformerBlock(nn.Module):
         self.label_embedded = label_embedded
         self.categorical_label = not label_embedded
         self.num_tags = num_tags
-        
-        if (not label_embedded) or (d_label != 0):
-            self.label_embeddings = [
-                nn.Embedding(self.num_tags, d_label) for _ in range(2)
-            ]
+       
+        if self.categorical_label:  
+            self.label_embeddings = nn.ModuleList([
+                nn.Embedding(self.num_tags, label_embedding_dim) for _ in range(2)
+            ])
         else:
-            self.label_embeddings = [
-                nn.Linear(self.d_label, self.d_label) for _ in range(2)
-            ]
-        self.layer_norms = [nn.LayerNorm(self.input_dim) for _ in range(2)]
+            self.label_embeddings = nn.ModuleList([
+                nn.Linear(self.label_embedding_dim, self.label_embedding_dim) for _ in range(2)
+            ])
+        self.layer_norms = nn.ModuleList([nn.LayerNorm(self.input_dim) for _ in range(2)])
 
         self.attention = LinearMultiHeadAttention(
             input_dim=input_dim,
@@ -122,19 +118,8 @@ class LinearTransformerBlock(nn.Module):
 
     def forward(self, x, labels=None):
         # Embed labels in case labels is retained
-        labels_attn = self.label_embedings[0](labels)
-        labels_dense = self.label_embedings[1](labels)
-
-        # labels_attn = (
-        #     self.label_embeddings[0](labels)
-        #     if not self.label_embedded 
-        #     else torch.zeros(x.shape[0], x.shape[1], 0)
-        # )
-        # labels_dense = (
-        #     self.label_embeddings[1](labels) 
-        #     if not self.label_embedded
-        #     else labels_attn
-        # )
+        labels_attn = self.label_embeddings[0](labels)
+        labels_dense = self.label_embeddings[1](labels)
 
         # Layer normalization
         hiddens = self.layer_norms[0](torch.cat([x, labels_attn], dim=-1))
