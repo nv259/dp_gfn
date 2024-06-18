@@ -184,7 +184,7 @@ class StateBatch:
                     num_variables=self.num_variables,
                     root_first=root_first,
                     device=self.device,
-                ).repeat(edges.shape[0], 1, 1)
+                )
             ),
             "adjacency": masking.encode(
                 torch.zeros(
