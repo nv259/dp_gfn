@@ -140,6 +140,7 @@ class DPGFN:
             traj_log_prob += log_prob
 
             print(actions)
+            print(logits[actions]) 
             
             batch.step(actions)
 
