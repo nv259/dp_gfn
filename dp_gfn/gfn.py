@@ -84,7 +84,6 @@ class DPGFN:
             initial_states, pref_embeddings = self.model.create_initial_state(
                 batch["text"]
             )
-            print(batch["num_words"])
             batch = StateBatch(
                 initial_states=initial_states,
                 gold_tree=batch["graph"],
