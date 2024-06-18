@@ -208,7 +208,7 @@ class StateBatch:
 
     def __getitem__(self, key: str):
         if key in self.encoded_key:
-            return masking.decode(self._data[key], self.num_variables)
+            return masking.decode(self._data[key], self.num_variables, device=self.device)
         
         return self._data[key]
 

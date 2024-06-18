@@ -75,11 +75,10 @@ class DPGFlowNet(nn.Module):
 
     def forward(self, edges, labels=None, mask=None):
         edges = self.backbone(edges, labels)
-        print(edges.shape) 
         logits = self.output_logits(edges)
-        print(logits.shape)
+        logits = logits.squeeze(-1)   
         logits = mask_logits(logits, mask)
-
+        
         return logits
 
     def create_initial_state(self, pref) -> torch.Tensor:
