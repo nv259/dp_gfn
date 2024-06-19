@@ -275,7 +275,7 @@ class StateBatch:
                 num_word + 1 : self.num_variables,
             ] = False
         masks[:, :, 0] = False
-        print(masks.dtype)
+        print(masks)
         self._data["mask"] = masking.encode(masks)
         self._data["adjacency"] = masking.encode(adjacencies)
 
