@@ -117,8 +117,7 @@ class DPGFN:
         traj_log_prob = torch.zeros(self.batch_size, device=self.device)
 
         for t in range(self.max_number_of_words):
-            print(t)
-            logits = self.model(batch["edges"], batch["labels"], batch["mask"])
+            logits = self.model(batch["edges"], batch["labels"])
             logits = masking.mask_logits(logits, batch["mask"])
             uniform_logits = masking.mask_uniform_logits(logits, batch["mask"]).to(
                 self.device
@@ -142,6 +141,8 @@ class DPGFN:
 
             if batch["done"].all() == True:
                 break
+            
+            del logits, uniform_logits, exploitation_dist, policy_dist, actions
 
         return batch, traj_log_prob
 

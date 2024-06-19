@@ -73,7 +73,7 @@ class DPGFlowNet(nn.Module):
     def Z(self, pref):
         return self.output_Z_mod(pref).sum(1)
 
-    def forward(self, edges, labels=None, mask=None):
+    def forward(self, edges, labels=None):
         edges = self.backbone(edges, labels)
         logits = self.output_logits(edges)
         logits = logits.squeeze(-1)   
