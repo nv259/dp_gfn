@@ -136,8 +136,8 @@ class DPGFN:
 
             #     actions = torch.where(uniform_mix, explore_actions, actions)
 
-            # log_prob = policy_dist.log_prob(actions) * torch.logical_not(batch["done"])
-            # traj_log_prob += log_prob
+            log_prob = policy_dist.log_prob(actions) * torch.logical_not(batch["done"])
+            traj_log_prob += log_prob
 
             batch.step(actions)
 
