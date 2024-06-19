@@ -144,6 +144,7 @@ class DPGFN:
                 break
             
             del logits, uniform_logits, exploitation_dist, policy_dist, actions
+            torch.cuda.empty_cache()
 
         return batch, traj_log_prob
 
