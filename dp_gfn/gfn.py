@@ -118,6 +118,7 @@ class DPGFN:
 
         for t in range(self.max_number_of_words):
             print(t)
+            print(torch.cuda.memory_allocated() / 1024 / 1024)
             logits = self.model(batch["edges"], batch["labels"])
             logits = masking.mask_logits(logits, batch["mask"])
             uniform_logits = masking.mask_uniform_logits(logits, batch["mask"]).to(
