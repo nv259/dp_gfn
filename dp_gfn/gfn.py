@@ -193,7 +193,7 @@ class StateBatch:
                     dtype=torch.bool,
                 )
             ),
-            "num_words": torch.ones(edges.shape[0]),
+            "num_words": num_words,
             "done": torch.zeros(edges.shape[0], dtype=torch.bool, device=self.device),
         }
         self._closure_T = torch.eye(
