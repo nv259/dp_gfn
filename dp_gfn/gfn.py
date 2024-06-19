@@ -232,8 +232,10 @@ class StateBatch:
         targets = actions % self.num_variables
         dones = self._data["done"]
         
+        print(dones) 
         print(sources)
         print(targets)
+        print(self._data["mask"].shape)
 
         if not torch.all(self._data["mask"][dones, sources, targets]):
             raise ValueError("Invalid action")
