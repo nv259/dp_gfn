@@ -4,7 +4,7 @@ import torch
 
 def encode(decoded):
     encoded = decoded.reshape(decoded.shape[0], -1).detach().cpu().numpy()
-    return torch.from_numpy(np.packbits(encoded.astype(np.bool), axis=1))
+    return torch.from_numpy(np.packbits(encoded.astype(bool), axis=1))
 
 
 def decode(encoded, num_variables, device, dtype=torch.float32):
