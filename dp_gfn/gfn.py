@@ -139,7 +139,7 @@ class DPGFN:
             log_prob = policy_dist.log_prob(actions) * torch.logical_not(batch["done"])
             traj_log_prob += log_prob
             
-            if t == 5: 
+            if t == 4: 
                 if traj_log_prob.grad_fn is not None:
                     for input_var in traj_log_prob.grad_fn.next_functions:
                         print(f"\tInput backward function: {input_var[0]}")
