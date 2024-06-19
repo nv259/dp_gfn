@@ -234,9 +234,9 @@ class StateBatch:
         masks = self.__getitem__("mask")
         adjacencies = self.__getitem__("adjacency")
         
-        print(dones) 
-        print(sources)
-        print(targets)
+        print(dones, dones.shape) 
+        print(sources, sources.shape)
+        print(targets, targets.shape)
 
         if not torch.all(masks[dones, sources, targets]):
             raise ValueError("Invalid action")
