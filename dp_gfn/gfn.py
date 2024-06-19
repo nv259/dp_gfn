@@ -124,10 +124,9 @@ class DPGFN:
             )
 
             exploitation_dist = Categorical(logits=logits)
-            print(logits[0])
             policy_dist = Categorical(logits=logits)
             actions = exploitation_dist.sample()
-            print(actions)
+            
             if is_train:
                 uniform_mix = torch.bernoulli(uniform_pol).bool()
                 print(uniform_mix)
@@ -138,9 +137,6 @@ class DPGFN:
 
             log_prob = policy_dist.log_prob(actions) * torch.logical_not(batch["done"])
             traj_log_prob += log_prob
-
-            print(actions)
-            print(batch["mask"].reshape(batch["mask"].shape[0], -1)[0][actions[0].item()])
             
             batch.step(actions)
 
