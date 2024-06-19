@@ -252,7 +252,7 @@ class StateBatch:
         self._closure_T[~dones] |= torch.logical_and(
             source_rows, target_cols
         )  # Outer product
-        self._closure_T[dones] = torch.eye(self.num_variables, dtype=torch.bool)
+        self._closure_T[dones] = torch.eye(self.num_variables, dtype=torch.bool, device=self.device)
 
         # Update dones
         self._data["done"][dones] = masking.check_done(adjacencies)
