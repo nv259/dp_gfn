@@ -117,6 +117,7 @@ class DPGFN:
         traj_log_prob = torch.zeros(self.batch_size, device=self.device)
 
         for t in range(self.max_number_of_words):
+            print(t)
             logits = self.model(batch["edges"], batch["labels"], batch["mask"])
             logits = masking.mask_logits(logits, batch["mask"])
             uniform_logits = masking.mask_uniform_logits(logits, batch["mask"]).to(
@@ -237,10 +238,6 @@ class StateBatch:
         masks = self.__getitem__("mask")
         adjacencies = self.__getitem__("adjacency")
 
-        print(dones, dones.shape)
-        print(sources, sources.shape)
-        print(targets, targets.shape)
-
         if not torch.all(masks[~dones, sources, targets]):
             raise ValueError("Invalid action")
 
@@ -257,7 +254,7 @@ class StateBatch:
         self._closure_T[dones] = torch.eye(
             self.num_variables, dtype=torch.bool, device=self.device
         )
-        print(adjacencies.device, self._data["num_words"].device)
+        
         # Update dones
         self._data["done"][~dones] = masking.check_done(
             adjacencies[~dones], self._data["num_words"][~dones]
@@ -275,7 +272,7 @@ class StateBatch:
                 num_word + 1 : self.num_variables,
             ] = False
         masks[:, :, 0] = False
-        print(masks)
+        
         self._data["mask"] = masking.encode(masks)
         self._data["adjacency"] = masking.encode(adjacencies)
 
