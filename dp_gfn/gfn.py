@@ -126,17 +126,17 @@ class DPGFN:
             exploitation_dist = Categorical(logits=logits)
             policy_dist = Categorical(logits=logits)
             actions = exploitation_dist.sample()
-            
+
             if is_train:
                 uniform_mix = torch.bernoulli(uniform_pol).bool()
                 exploration_dist = Categorical(logits=uniform_logits)
                 explore_actions = exploration_dist.sample()
-                
+
                 actions = torch.where(uniform_mix, explore_actions, actions)
 
             log_prob = policy_dist.log_prob(actions) * torch.logical_not(batch["done"])
             traj_log_prob += log_prob
-            
+
             batch.step(actions)
 
             if batch["done"].all() == True:
@@ -171,7 +171,7 @@ class StateBatch:
         self.device = initial_states.device
         self.batch_size = edges.shape[0]
         self.encoded_key = ["mask", "adjacency"]
-        
+
         self._data = {
             "edges": edges,
             "labels": labels,
@@ -206,8 +206,10 @@ class StateBatch:
 
     def __getitem__(self, key: str):
         if key in self.encoded_key:
-            return masking.decode(self._data[key], self.num_variables, device=self.device)
-        
+            return masking.decode(
+                self._data[key], self.num_variables, device=self.device
+            )
+
         return self._data[key]
 
     def get_full_data(self, index: int):
@@ -234,8 +236,8 @@ class StateBatch:
         sources, targets = sources[~dones], targets[~dones]
         masks = self.__getitem__("mask")
         adjacencies = self.__getitem__("adjacency")
-        
-        print(dones, dones.shape) 
+
+        print(dones, dones.shape)
         print(sources, sources.shape)
         print(targets, targets.shape)
 
@@ -252,17 +254,19 @@ class StateBatch:
         self._closure_T[~dones] |= torch.logical_and(
             source_rows, target_cols
         )  # Outer product
-        self._closure_T[dones] = torch.eye(self.num_variables, dtype=torch.bool, device=self.device)
+        self._closure_T[dones] = torch.eye(
+            self.num_variables, dtype=torch.bool, device=self.device
+        )
 
         # Update dones
-        self._data["done"][dones] = masking.check_done(adjacencies)
+        self._data["done"][~dones] = masking.check_done(
+            adjacencies[~dones], self._data["num_words"][~dones]
+        )
 
         # Update the mask
         masks = 1 - (adjacencies + self._closure_T)
         num_parents = torch.sum(adjacencies, axis=1, keepdim=True)
-        masks *= (num_parents < 1).to(
-            self.device
-        )  # each node has only one parent node
+        masks *= (num_parents < 1).to(self.device)  # each node has only one parent node
         # Exclude all undue edges
         for batch_idx, num_word in enumerate(self._data["num_words"]):
             masks[
@@ -271,7 +275,7 @@ class StateBatch:
                 num_word + 1 : self.num_variables,
             ] = False
         masks[:, :, 0] = False
-        
+
         self._data["mask"] = masking.encode(masks)
         self._data["adjacency"] = masking.encode(adjacencies)
 
