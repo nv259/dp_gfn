@@ -139,7 +139,7 @@ class DPGFN:
             log_prob = policy_dist.log_prob(actions) * torch.logical_not(batch["done"])
             traj_log_prob += log_prob
 
-            batch.step(actions)
+            # batch.step(actions)
 
             if batch["done"].all() == True:
                 break
