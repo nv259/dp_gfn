@@ -121,20 +121,20 @@ class DPGFN:
             print(torch.cuda.memory_allocated() / 1024 / 1024)
             logits = self.model(batch["edges"], batch["labels"])
             logits = masking.mask_logits(logits, batch["mask"])
-            # uniform_logits = masking.mask_uniform_logits(logits, batch["mask"]).to(
-            #     self.device
-            # )
+            uniform_logits = masking.mask_uniform_logits(logits, batch["mask"]).to(
+                self.device
+            )
 
             exploitation_dist = Categorical(logits=logits)
             policy_dist = Categorical(logits=logits)
             actions = exploitation_dist.sample()
 
-            # if is_train:
-            #     uniform_mix = torch.bernoulli(uniform_pol).bool()
-            #     exploration_dist = Categorical(logits=uniform_logits)
-            #     explore_actions = exploration_dist.sample()
+            if is_train:
+                uniform_mix = torch.bernoulli(uniform_pol).bool()
+                exploration_dist = Categorical(logits=uniform_logits)
+                explore_actions = exploration_dist.sample()
 
-            #     actions = torch.where(uniform_mix, explore_actions, actions)
+                actions = torch.where(uniform_mix, explore_actions, actions)
 
             log_prob = policy_dist.log_prob(actions) * torch.logical_not(batch["done"])
             # traj_log_prob += log_prob
