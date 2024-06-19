@@ -86,8 +86,8 @@ class DPGFN:
             )
             batch = StateBatch(
                 initial_states=initial_states,
-                gold_tree=batch["graph"],
-                num_words=batch["num_words"],
+                gold_tree=batch["graph"].to(self.device),
+                num_words=batch["num_words"].to(self.device),
                 node_embedding_dim=self.model.state_encoder.node_embedding_dim,
             )
 
