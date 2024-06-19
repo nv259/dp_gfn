@@ -57,3 +57,10 @@ def mask_uniform_logits(logits, masks, MASKED_VALUE=-1e5):
     uniform_logits = torch.ones_like(logits) * 0.5
     
     return masks * uniform_logits + (1 - masks) * MASKED_VALUE
+
+
+def check_done(adjacency_matrix, num_words):
+    # In a tree, number of edges is equal to number of nodes - 1
+    num_edges = adjacency_matrix.sum((1, 2)) - 1    
+    
+    return num_edges == num_words
