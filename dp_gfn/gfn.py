@@ -231,6 +231,7 @@ class StateBatch:
         sources = actions // self.num_variables
         targets = actions % self.num_variables
         dones = self._data["done"]
+        sources, targets = sources[~dones], targets[~dones]
         masks = self.__getitem__("mask")
         adjacencies = self.__getitem__("adjacency")
         
@@ -238,7 +239,7 @@ class StateBatch:
         print(sources, sources.shape)
         print(targets, targets.shape)
 
-        if not torch.all(masks[dones, sources, targets]):
+        if not torch.all(masks[~dones, sources, targets]):
             raise ValueError("Invalid action")
 
         # Update adjacency matrices
