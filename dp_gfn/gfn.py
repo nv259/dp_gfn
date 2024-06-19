@@ -257,7 +257,7 @@ class StateBatch:
         self._closure_T[dones] = torch.eye(
             self.num_variables, dtype=torch.bool, device=self.device
         )
-
+        print(adjacencies.device, self._data["num_words"].device)
         # Update dones
         self._data["done"][~dones] = masking.check_done(
             adjacencies[~dones], self._data["num_words"][~dones]
