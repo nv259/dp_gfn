@@ -64,3 +64,13 @@ def batch_token_embeddings_to_batch_word_embeddings(
     batch_word_embeddings = torch.stack(batch_word_embeddings)
 
     return batch_word_embeddings
+
+
+def get_pretrained_parameters(pretrained_weights, keyword='.'):
+    res = []
+    
+    for key in pretrained_weights.weights.keys():
+        if keyword in key:
+            res.append(key)
+            
+    return res
