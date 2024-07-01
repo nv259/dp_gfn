@@ -1,40 +1,31 @@
 from typing import Optional
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+import haiku as hk
+import jax.nn as nn
 from dp_gfn.nets.attention import LinearMultiHeadAttention
 
 
-class MLP(nn.Module):
-    def __init__(
-        self,
-        input_dim,
-        output_dim,
-        hidden_layers=None,
-        dropout_rate=0.1,
-        activation="ReLU",
-    ):
-        super(MLP, self).__init__()
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-
-        activation = getattr(nn, activation)
-
-        if not hidden_layers:
-            hidden_layers = [(input_dim + output_dim) // 2] 
-            
-        layers = [nn.Linear(input_dim, hidden_layers[0]), activation()]
-        for i in range(len(hidden_layers) - 1):
-            layers.append(nn.Linear(hidden_layers[i], hidden_layers[i + 1]))
-            layers.append(activation())
-            layers.append(nn.Dropout(dropout_rate))
-        layers.append(nn.Linear(hidden_layers[-1], output_dim))
-        self.layers = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.layers(x)
-
+class DenseBlock(hk.Module):
+    def __init__(self, output_size, init_scale, activation='gelu', name=None):
+        super().__init__(name=name)
+        self.output_size = output_size
+        self.init_scale = init_scale
+        self.activation = activation
+        
+    def __call__(self, inputs):
+        input_size = inputs.shape[-1]
+         
+        w_init = hk.initializers.VarianceScaling(self.init_scale)
+        hiddens = hk.Linear(
+            self.widening_factor * self.output_size, 
+            w_init = (input_size + self.output_size) // 2,
+            w_init=w_init
+        )(inputs)
+        
+        activation = getattr(nn, self.activation)
+        hiddens = activation(hiddens)
+        
+        return hk.Linear(self.output_size, w_init=w_init)(hiddens)
 
 class Backbone(nn.Module):
     
