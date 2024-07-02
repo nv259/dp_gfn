@@ -59,10 +59,36 @@ class Embeddings(hk.Module):
             name='LayerNorm'
         )(embeddings)
         
-        if training:
+        if training:    # TODO: check embed_dropout_prob
             embeddings = hk.dropout(
                 hk.next_rng_key(), rate=self.config['hidden_dropout_prob']
             )
         
         return embeddings
+   
+   
+class WordEmbeddings(hk.Module):
+    
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        
+    def __call__(self, input_ids, training=False):
+        flat_input_ids = jnp.reshape(
+            input_ids, [input_ids.shape[0] * input_ids.shape[1]]
+        )
+        
+        # TODO: cross-check with other plms (XLM-R, RoBERTa, etc.)
+        flat_input_embeddings = hk.Embed(
+            vocab_size=self.config['vocab_size'], 
+            embed_dim=self.config['hidden_size'],
+            w_init=hk.initializers.Constant(
+                pretrained_weights['embeddings.word_embeddings.weight'])
+        )(flat_input_ids)
+        
+        token_embeddings = jnp.reshape(
+            flat_input_embeddings, [input_ids.shape[0], input_ids.shape[1], self.config['hidden_size']]
+        )
+        
+        return token_embeddings
     
