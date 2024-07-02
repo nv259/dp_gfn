@@ -2,8 +2,8 @@ import numpy as np
 import jax.numpy as jnp
 import jax 
 import haiku as hk
-from transformers import BertModel, BertConfig, BertTokenizer
-
+from transformers import BertModel, BertConfig
+from dp_gfn.utils.pretrains import split_into_heads
 
 
 class PretrainedWeights(object):
@@ -30,6 +30,7 @@ class PretrainedWeights(object):
 
 
 PRETRAINED_WEIGHTS = PretrainedWeights('bert-base-uncased')
+CONFIG = BertConfig('bert-base-uncased')
 
 
 class Embeddings(hk.Module):
@@ -38,7 +39,7 @@ class Embeddings(hk.Module):
         super().__init__()
         self.config = config
         
-    def __call__(self, input_ids=None, token_type_ids=None, attention_mask=None, training=False):
+    def __call__(self, input_ids=None, token_type_ids=None, training=False, **kwargs):
         # Calculate embeddings
         token_embeddings = WordEmbeddings(self.config)(input_ids)
         position_embeddings = PositionEmbeddings(self.config)()
@@ -147,7 +148,7 @@ class TokenTypeEmbeddings(hk.Module):
         return token_type_embeddings
 
 
-class Encoder(hk.Module):
+class EncoderLayer(hk.Module):
     
     def __init__(self, config, layer_num):
         super().__init__(name=f'encoder_layer_{layer_num}')
@@ -165,7 +166,7 @@ class Encoder(hk.Module):
         intermediate_output = hk.Linear(
             output_size=self.config['intermediate_size'],
             w_init=hk.initializers.Constant(
-                PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.intermedintermediateiate.dense.weight'].transpose()
+                PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.intermediate.dense.weight'].transpose()
             ),
             b_init=hk.initializers.Constant(
                 PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.intermediate.dense.bias']
@@ -184,3 +185,175 @@ class Encoder(hk.Module):
         ) (intermediate_output, attention_output, training=training)
         
         return output
+    
+    
+class Attention(hk.Module):
+    
+    def __init__(self, config, layer_num):
+        super().__init__()
+        self.config = config
+        self.layer_num = layer_num
+        
+    def __call__(self, x, mask, training=False):
+        query = split_into_heads(
+            hk.Linear(
+                output_size=self.config['hidden_size'],
+                w_init=hk.initializers.Constant(
+                    PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.attention.self.query.weight'].transpose()
+                ), 
+                b_init=hk.initializers.Constant(
+                    PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.attention.self.query.bias']
+                ),
+                name='query'
+            )(x), 
+            self.config['num_attention_heads']
+        )
+        
+        key = split_into_heads(
+            hk.Linear(
+                output_size=self.config['hidden_size'],
+                w_init=hk.initializers.Constant(
+                    PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.attention.self.key.weight'].transpose()
+                ), 
+                b_init=hk.initializers.Constant(
+                    PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.attention.self.key.bias']
+                ),
+                name='key'
+            )(x),
+            self.config['num_attention_heads']
+        )
+        
+        value = split_into_heads(
+            hk.Linear(
+                output_size=self.config['hidden_size'],
+                w_init=hk.initializers.Constant(
+                    PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.attention.self.value.weight'].transpose()
+                ), 
+                b_init=hk.initializers.Constant(
+                    PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.attention.self.value.bias']
+                ),
+                name='value'
+            )(x),
+            self.config['num_attention_heads']
+        )
+        
+        # Scaled-dot Production Self Attention
+        # b: batch
+        # s: query_seq_len (source)
+        # t: key_seq_len (target)
+        # n: num_attention_heads
+        # h: hidden_size_per_head
+        attention_logits = jnp.einsum('bsnh, btnh -> bnst', query, key) # Q.K^T
+        attention_logits /= np.sqrt(query.shape[-1])    # dot_product / sqrt(d_k)
+        
+        # Masking
+        attention_logits += jnp.reshape(
+            (1 - mask) * -1e9,
+            [
+                mask.shape[0],
+                1, 
+                1, 
+                mask.shape[1]
+            ]
+        ) 
+        
+        attention_weights = jax.nn.softmax(attention_logits, axis=-1)   # Softmax(Q.K^T / sqrt(d_k))
+        per_head_attention_output = jnp.einsum(
+            'btnh, bnst -> bsnh', value, attention_weights
+        ) 
+        
+        attention_output = jnp.reshape(
+            per_head_attention_output,
+            [
+                per_head_attention_output.shape[0],
+                per_head_attention_output.shape[1],
+                -1 
+            ]
+        )
+        
+        # Output dense
+        attention_output = hk.Linear(
+            output_size=self.config['hidden_size'],
+            w_init=hk.initializers.Constant(
+                PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.attention.output.dense.weight'].transpose()
+            ),
+            b_init=hk.initializers.Constant(
+                PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.attention.output.dense.bias']
+            ),
+            name='output_dense'
+        )(attention_output)
+        
+        if training:
+            attention_output = hk.dropout(
+                rng=hk.next_rng_key(),
+                rate=self.config['attention_probs_dropout_prob'],
+                x=attention_output
+            )(attention_output)
+            
+        # Add & Norm
+        attention_output = attention_output + x
+        attention_output = hk.LayerNorm(
+            axis=-1, 
+            create_scale=True, 
+            create_offset=True,
+            scale_init=hk.initializers.Constant(
+                PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.attention.output.LayerNorm.weight']
+            ),
+            offset_init=hk.initializers.Constant(
+                PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.attention.output.LayerNorm.bias']
+            ),
+            name="output_LayerNorm"
+        )(attention_output)
+        
+        return attention_output
+
+
+class Output(hk.Module):
+    
+    def __init__(self, config, layer_num):
+        super().__init__()
+        self.config = config
+        self.layer_num = layer_num
+        
+    def __call__(self, intermediate_output, attention_output, training=False):
+        output = hk.Linear(
+            output_size=self.config['hidden_size'],
+            w_init=hk.initializers.Constant(
+                PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.output.dense.weight'].transpose()
+            ),
+            b_init=hk.initializers.Constant(
+                PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.output.dense.bias']
+            )
+        )(intermediate_output)
+        
+        # Add & Norm
+        output = output + attention_output
+        output = hk.LayerNorm(
+            axis=-1,
+            create_offset=True,
+            create_scale=True,
+            scale_init=hk.initializers.Constant(
+                PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.output.LayerNorm.weight']
+            ),
+            offset_init=hk.initializers.Constant(
+                PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.output.LayerNorm.bias']
+            )
+        )(output)
+        
+        return output
+
+
+class BertModel(hk.Module):
+    
+    def __init__(self, config, name="BertModel"):
+        super().__init__(name=name)
+        self.config = config
+        
+    def __call__(self, input_ids=None, token_type_ids=None, attention_mask=None, training=False):
+        x = Embeddings(self.config)(input_ids=input_ids, token_type_ids=token_type_ids, training=training)
+        mask = attention_mask.astype(jnp.float32)
+        
+        for layer_num in range(self.config['num_hidden_layers']):
+            x = EncoderLayer(self.config, layer_num)(x, mask, training=training)
+            
+        return x
