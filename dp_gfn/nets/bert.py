@@ -91,4 +91,27 @@ class WordEmbeddings(hk.Module):
         )
         
         return token_embeddings
+   
+
+# TODO: inspect position embedding type ('absolute' or else)
+class PositionEmbeddings(hk.Module):
+    
+    def __init__(self, config, offset=0):
+        super().__init__()
+        self.config = config  
+        self.offset = offset
+        
+    def __call_(self):
+        position_weights = hk.get_parameter(
+            "position_embeddings",
+            pretrained_weights['embeddings.position_embeddings.weight'].shape,
+            init=hk.initializers.Constant(
+                pretrained_weights['embeddings.position_embeddings.weight']
+            )
+        )
+        
+        start = self.offset
+        end = start + self.config['max_position_embeddings']
+    
+        return position_weights[start:end]
     
