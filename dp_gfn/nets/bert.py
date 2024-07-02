@@ -5,6 +5,7 @@ import haiku as hk
 from transformers import BertModel, BertConfig, BertTokenizer
 
 
+
 class PretrainedWeights(object):
     
     def __init__(self, path_to_pretrained):
@@ -28,17 +29,16 @@ class PretrainedWeights(object):
         return str(self.weights.keys())
 
 
+PRETRAINED_WEIGHTS = PretrainedWeights('bert-base-uncased')
+
+
 class Embeddings(hk.Module):
     
     def __init__(self, config):
         super().__init__()
         self.config = config
         
-    def __call__(self, training=False, **kwargs):
-        input_ids = kwargs['input_ids']
-        token_type_ids = kwargs['token_type_ids']
-        attention_mask = kwargs['attention_mask']
-        
+    def __call__(self, input_ids=None, token_type_ids=None, attention_mask=None, training=False):
         # Calculate embeddings
         token_embeddings = WordEmbeddings(self.config)(input_ids)
         position_embeddings = PositionEmbeddings(self.config)()
@@ -53,9 +53,9 @@ class Embeddings(hk.Module):
             create_scale=True, 
             eps=self.config['layer_norm_eps'],
             scale_init=hk.initializers.Constant(
-                pretrained_weights['embeddings.LayerNorm.weight']),
+                PRETRAINED_WEIGHTS['embeddings.LayerNorm.weight']),
             offset_init=hk.initializers.Constant(
-                pretrained_weights['embeddings.LayerNorm.bias']),
+                PRETRAINED_WEIGHTS['embeddings.LayerNorm.bias']),
             name='LayerNorm'
         )(embeddings)
         
@@ -83,7 +83,7 @@ class WordEmbeddings(hk.Module):
             vocab_size=self.config['vocab_size'], 
             embed_dim=self.config['hidden_size'],
             w_init=hk.initializers.Constant(
-                pretrained_weights['embeddings.word_embeddings.weight'])
+                PRETRAINED_WEIGHTS['embeddings.word_embeddings.weight'])
         )(flat_input_ids)
         
         token_embeddings = jnp.reshape(
@@ -101,12 +101,12 @@ class PositionEmbeddings(hk.Module):
         self.config = config  
         self.offset = offset
         
-    def __call_(self):
+    def __call__(self):
         position_weights = hk.get_parameter(
             "position_embeddings",
-            pretrained_weights['embeddings.position_embeddings.weight'].shape,
+            PRETRAINED_WEIGHTS['embeddings.position_embeddings.weight'].shape,
             init=hk.initializers.Constant(
-                pretrained_weights['embeddings.position_embeddings.weight']
+                PRETRAINED_WEIGHTS['embeddings.position_embeddings.weight']
             )
         )
         
@@ -131,7 +131,7 @@ class TokenTypeEmbeddings(hk.Module):
             vocab_size=self.config['type_vocab_size'],
             embed_dim=self.config['hidden_size'],
             w_init=hk.initializers.Constant(
-                pretrained_weights['embeddings.token_type_embeddings.weight']
+                PRETRAINED_WEIGHTS['embeddings.token_type_embeddings.weight']
             )
         )(flat_token_type_ids)
         
@@ -145,3 +145,42 @@ class TokenTypeEmbeddings(hk.Module):
         )
         
         return token_type_embeddings
+
+
+class Encoder(hk.Module):
+    
+    def __init__(self, config, layer_num):
+        super().__init__(name=f'encoder_layer_{layer_num}')
+        self.config = config
+        self.layer_num = layer_num
+        
+    def __call__(self, x, mask, training=False):
+        # Feeding inputs through a multi-head attention operation
+        # i.e. linear mapping -> multi-head attention -> residual connection -> LayerNorm
+        attention_output = Attention(
+            self.config, self.layer_num
+        )(x, mask, training=training)
+        
+        # Inter-mediate (higher dimension)
+        intermediate_output = hk.Linear(
+            output_size=self.config['intermediate_size'],
+            w_init=hk.initializers.Constant(
+                PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.intermedintermediateiate.dense.weight'].transpose()
+            ),
+            b_init=hk.initializers.Constant(
+                PRETRAINED_WEIGHTS[f'encoder.layer.{self.layer_num}.intermediate.dense.bias']
+            ),
+            name="intermediate"
+        )(attention_output)
+        
+        # TODO: Usage of approximation?
+        if self.config['hidden_act'] == 'gelu':
+            intermediate_output = jax.nn.gelu(intermediate_output)
+        else:
+            raise Exception("Hidden activation not supported")
+        
+        output = Output(
+            self.config, self.layer_num
+        ) (intermediate_output, attention_output, training=training)
+        
+        return output
