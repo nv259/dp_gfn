@@ -114,4 +114,34 @@ class PositionEmbeddings(hk.Module):
         end = start + self.config['max_position_embeddings']
     
         return position_weights[start:end]
+   
+
+class TokenTypeEmbeddings(hk.Module):
     
+    def __init__(self, config, offset=0):
+        super().__init__()
+        self.config = config
+        
+    def __call__(self, token_type_ids):
+        flat_token_type_ids = jnp.reshape(
+            token_type_ids, [token_type_ids.shape[0] * token_type_ids.shape[1]]
+        )
+
+        flat_token_type_embeddings = hk.Embed(
+            vocab_size=self.config['type_vocab_size'],
+            embed_dim=self.config['hidden_size'],
+            w_init=hk.initializers.Constant(
+                pretrained_weights['embeddings.token_type_embeddings.weight']
+            )
+        )(flat_token_type_ids)
+        
+        token_type_embeddings = jnp.reshape(
+            flat_token_type_embeddings,
+            [
+                token_type_ids.shape[0],
+                token_type_ids.shape[1],
+                self.config['hidden_size']
+            ]
+        )
+        
+        return token_type_embeddings
