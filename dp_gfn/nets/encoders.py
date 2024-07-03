@@ -20,12 +20,10 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-from typing import Optional
-
 import haiku as hk
 import jax.nn as nn
-from dp_gfn.nets.attention import LinearMultiHeadAttention
 import jax.numpy as jnp
+from dp_gfn.nets.attention import LinearMultiHeadAttention
 
 
 class DenseBlock(hk.Module):
@@ -40,8 +38,7 @@ class DenseBlock(hk.Module):
          
         w_init = hk.initializers.VarianceScaling(self.init_scale)
         hiddens = hk.Linear(
-            self.widening_factor * self.output_size, 
-            w_init = (input_size + self.output_size) // 2,
+            (input_size + self.output_size) // 2,
             w_init=w_init
         )(inputs)
         
@@ -50,7 +47,6 @@ class DenseBlock(hk.Module):
         
         return hk.Linear(self.output_size, w_init=w_init)(hiddens)
 
-    
 
 # class Backbone(nn.Module):
 #     def __init__(self, encoder_block, num_layers, input_dim, output_dim, num_tags):
@@ -72,6 +68,7 @@ class DenseBlock(hk.Module):
     
 #     def __getitem__(self, index):
 #         return self.layers[index]
+
     
 class TransformerBlock(hk.Module):
     def __init__(
@@ -134,4 +131,3 @@ class TransformerBlock(hk.Module):
         hiddens = hiddens + edges_embedding
         
         return hiddens
-    

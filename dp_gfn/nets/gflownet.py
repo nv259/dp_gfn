@@ -13,7 +13,6 @@ from dp_gfn.nets.initial_encoders import LabelScorer, PrefEncoder, StateEncoder
 from dp_gfn.utils.masking import mask_logits
 
 from hydra.utils import instantiate
-# from linear_attention_transformer import LinearAttentionTransformer
 
 
 class DPGFlowNet(nn.Module):

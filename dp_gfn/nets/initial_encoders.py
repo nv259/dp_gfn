@@ -5,9 +5,12 @@ import torch.nn.functional as F
 
 from dp_gfn.utils.pretrains import batch_token_embeddings_to_batch_word_embeddings
 
-from transformers import AutoModel, AutoTokenizer
+# from dp_gfn.nets.encoders import DenseBlock TODO: 
 
-from dp_gfn.nets.encoders import MLP
+import haiku as hk
+
+from transformers import AutoTokenizer, AutoConfig
+from dp_gfn.nets.bert import BertModel
 
 
 class StateEncoder(nn.Module):
@@ -94,7 +97,7 @@ class StateEncoder(nn.Module):
             return state_embeddings
 
 
-class PrefEncoder(nn.Module):
+class PrefEncoder(hk.Module):
     """
     A neural network module that processes a batch of sentences
     to produce word-level embeddings instead of the usual token-level embeddings.
@@ -112,47 +115,29 @@ class PrefEncoder(nn.Module):
     Outputs:
         torch.Tensor: Word embeddings with shape [batch_size, max_word_len, d_model].
     """
-
-    def __init__(
-        self,
-        pretrained_path=None,
-        trainable=True,
-        agg_func="mean",
-        max_word_length=160,
-    ):
-        super(PrefEncoder, self).__init__()
-
-        # Load pretrain language model
-        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_path)
-        self.bert_model = AutoModel.from_pretrained(pretrained_path)
-        if trainable is False:
-            for param in self.bert_model.parameters():
-                param.requires_grad = False
-
-        # Store auxiliary parameters
-        self.word_embedding_dim = self.bert_model.embeddings.word_embeddings.embedding_dim
-        self.agg_func = agg_func
-        self.max_word_length = max_word_length 
-
-    def forward(self, batch):
-        tokens = self.tokenizer(
-            batch, return_tensors="pt", padding="max_length", truncation=True
-        ) 
+    def __init__(self, pretrained_path="bert-base-uncased", agg_func="mean", max_word_length=160): # TODO: trainable=True
+        super().__init__()
         
-        device = self.bert_model.device        
-        tokens["input_ids"] = tokens["input_ids"].to(device)
-        tokens["attention_mask"] = tokens["attention_mask"].to(device)
-        tokens["token_type_ids"] = tokens["token_type_ids"].to(device)
-
-        token_embeddings = self.bert_model(**tokens).last_hidden_state
-
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_path)
+        self.config = AutoConfig.from_pretrained(pretrained_path).to_dict()
+        self.agg_func = agg_func
+        self.max_word_length = max_word_length
+        
+    def __call__(self, batch, training=False):
+        tokens = self.tokenizer(
+            batch, return_tensors='jax', padding='max_length', truncation=True,
+            add_special_tokens=False
+        )
+        
+        token_embeddings = BertModel(self.config)(**tokens, training=training)
+        
         word_embeddings = batch_token_embeddings_to_batch_word_embeddings(
             tokens=tokens,
             token_embeddings=token_embeddings,
             agg_func=self.agg_func,
             max_word_length=self.max_word_length,
         )
-
+        
         return word_embeddings
 
 
