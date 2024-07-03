@@ -8,7 +8,7 @@ from dp_gfn.utils.pretrains import batch_token_embeddings_to_batch_word_embeddin
 # from dp_gfn.nets.encoders import DenseBlock TODO: 
 
 import haiku as hk
-
+import jax.numpy as jnp
 from transformers import AutoTokenizer, AutoConfig
 from dp_gfn.nets.bert import BertModel
 
@@ -141,98 +141,33 @@ class PrefEncoder(hk.Module):
         return word_embeddings
 
 
-class LabelScorer(nn.Module):
-    r"""__init__(self, num_tags, input_dim=768, intermediate_dim=128, hidden_layers=[512, 256], activation=None)
-
-    Apply Biaffine label scorer to an input tensor (head -> dep)
-
-    Args:
-        num_tags (int): The number of expected labels in dataset
-        input_dim (int, optional): The number of features in the input tensor (word embeddings). Defaults to 768.
-        intermediate_dim (int, optional): The number of features in the intermediate tensor (head/dep representation). Defaults to 128.
-
-    Inputs: heads, deps
-        * heads: A tensor of shape ``[batch_size, num_heads, word_emb_dim]`` representing the representations of words designated as heads in the arcs.
-        * deps: A tensor of shape `[batch_size, num_deps, word_emb_dim]` representing the representations of words designated as dependents in the arcs.
-
-    Outputs:
-        * lab_scores (torch.Tensor): A tensor of shape ``[batch_size, num_tags]``)
-
-    Examples::
-
-        >>> # Initialize the LabelScorer
-        >>> label_scorer = LabelScorer(num_tags, input_dim=768, output_dim=128)
-
-        >>> # Compute the label scores
-        >>> lab_scores = label_scorer(heads, deps)
-
-    """
-
-    def __init__(
-        self,
-        num_tags,
-        input_dim=768,
-        intermediate_dim=128,
-        hidden_layers=[512, 256],
-        dropout_rate=0.1,
-        activation="ReLU",
-        use_pretrained_embeddings=False,
-    ):
-        if use_pretrained_embeddings is False:
-            print(
-                f"warning: use_pretrained_embeddings is False, LabelScorer will use node embeddings from state instead"
-            )
-
-        super(LabelScorer, self).__init__()
+class LabelScorer(hk.Module):
+    
+    def __init__(self, num_tags, init_scale, intermediate_dim=128, activation="relu"):
+        super().__init__()
+        
         self.num_tags = num_tags
-        self.use_pretrained_embeddings = use_pretrained_embeddings
+        self.init_scale = init_scale
+        self.intermediate_dim = intermediate_dim
+        self.activation = activation
+        
+    def __call__(self, head, dep):
+        w_init = hk.initializers.VarianceScaling(self.init_scale)
+        
+        W = hk.get_parameter(name='W', shape=(self.num_tags, self.intermediate_dim, self.intermediate_dim), init=w_init)
+        Wh = hk.get_parameter(name='Wh', shape=(self.intermediate_dim, self.num_tags), init=w_init)
+        Wd = hk.get_parameter(name='Wd', shape=(self.intermediate_dim, self.num_tags), init=w_init)
+        b = hk.get_parameter(name='b', shape=(self.num_tags,), init=jnp.ones)
 
-        if self.use_pretrained_embeddings:
-            self.mlp_head = MLP(
-                input_dim, intermediate_dim, hidden_layers, dropout_rate, activation
-            )
-            self.mlp_dep = MLP(
-                input_dim, intermediate_dim, hidden_layers, dropout_rate, activation
-            )
-        else:
-            self.mlp_head = nn.Linear(input_dim, intermediate_dim)
-            self.mlp_dep = nn.Linear(input_dim, intermediate_dim)
-
-        # Biaffine layer
-
-        W = torch.randn(self.num_tags, intermediate_dim, intermediate_dim)
-        self.W = nn.Parameter(W)
-        nn.init.xavier_uniform_(self.W)
-
-        Wh = torch.randn(intermediate_dim, self.num_tags)
-        self.Wh = nn.Parameter(Wh)
-        nn.init.xavier_uniform_(self.Wh)
-
-        Wd = torch.randn(intermediate_dim, self.num_tags)
-        self.Wd = nn.Parameter(Wd)
-        nn.init.xavier_uniform_(self.Wd)
-
-        b = torch.randn(self.num_tags)
-        self.b = nn.Parameter(b)
-
-    def forward(self, heads, deps) -> torch.Tensor:
-        lab_heads = self.mlp_heads(heads)
-        lab_deps = self.mlp(deps)
+        lab_head = hk.Linear(self.intermediate_dim, w_init=w_init)(head)
+        lab_dep = hk.Linear(self.intermediate_dim, w_init=w_init)(dep)
 
         # Biaffine layer
-        head_scores = lab_heads @ self.Wh
-        dep_scores = lab_deps @ self.Wd
-
-        # Reshape D_L and H_L for biaffine equation
-        while lab_heads.dim() <= self.W.dim():
-            lab_heads = lab_heads.unsqueeze(1)
-            lab_deps = lab_deps.unsqueeze(1)
-
-        arc_scores = torch.reshape(
-            lab_deps @ self.W @ lab_heads.transpose(-1, -2),
-            (heads.shape[0], self.num_tags),
-        )
-
-        lab_scores = arc_scores + head_scores + dep_scores + self.b
-
-        return lab_scores
+        head_score = lab_head @ Wh
+        dep_score = lab_dep @ Wd
+        arc_score = lab_dep @ W @ lab_head 
+        
+        lab_score = arc_score + head_score + dep_score + b
+        
+        return lab_score
+    
