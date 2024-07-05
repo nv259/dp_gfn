@@ -47,37 +47,15 @@ class DenseBlock(hk.Module):
         
         return hk.Linear(self.output_size, w_init=w_init)(hiddens)
 
-
-# class Backbone(nn.Module):
-#     def __init__(self, encoder_block, num_layers, input_dim, output_dim, num_tags):
-#         super(Backbone, self).__init__()
-#         self.num_layers = num_layers
-#         self.input_dim = input_dim
-#         self.output_dim = output_dim
-        
-#         self.layers = nn.ModuleList([encoder_block(num_tags=num_tags) for _ in range(num_layers)])
     
-#     def forward(self, x, aux=None):
-#         for layer in self.layers:
-#             if aux is not None:
-#                 x = layer(x, aux)
-#             else: 
-#                 x = layer(x)
-        
-#         return x  
-    
-#     def __getitem__(self, index):
-#         return self.layers[index]
-
-    
-class TransformerBlock(hk.Module):
+class LinearTransformerBlock(hk.Module):
     def __init__(
         self,
         num_heads,
         key_size,
         embedding_size,
         init_scale, 
-        widening_factor=4,
+        num_tags,
         name=None
     ):
         super().__init__(name=name)
@@ -85,17 +63,22 @@ class TransformerBlock(hk.Module):
         self.key_size = key_size
         self.embedding_size = embedding_size
         self.init_scale = init_scale
-        self.widening_factor = widening_factor
+        self.num_tags = num_tags
 
     def __call__(self, edges_embedding, labels):
         w_init = hk.initializers.VarianceScaling(self.init_scale)
         
         # Attention layer
-        preattn_labels_embedding = hk.Linear(
+        preattn_labels_embedding = hk.Embed(
+            self.num_tags,
             self.embedding_size,
-            w_init=w_init,
-            name='preattn_linear'
+            name='preattn_embedding'
         )(labels)
+        # preattn_labels_embedding = hk.Linear(
+        #     self.embedding_size,
+        #     w_init=w_init,
+        #     name='preattn_linear'
+        # )(labels)
         hiddens = hk.LayerNorm(
             axis=-1,
             create_scale=True, 
@@ -111,11 +94,16 @@ class TransformerBlock(hk.Module):
         edges_embedding = edges_embedding + attn
         
         # FFN layer 
-        preffn_labels_embedding = hk.Linear(
+        preffn_labels_embedding = hk.Embed(
+            self.num_tags,
             self.embedding_size,
-            w_init=w_init,
-            name='preffn_linear'
+            name='preffn_embedding'
         )(labels)
+        # preffn_labels_embedding = hk.Linear(
+        #     self.embedding_size,
+        #     w_init=w_init,
+        #     name='preffn_linear'
+        # )(labels)
         hiddens = hk.LayerNorm(
             axis=-1,
             create_scale=True,
@@ -125,8 +113,7 @@ class TransformerBlock(hk.Module):
         hiddens = DenseBlock(
             output_size=self.num_heads * self.key_size,
             init_scale=self.init_scale,
-            # TODO: widening factor
-        )
+        )(hiddens)
         
         hiddens = hiddens + edges_embedding
         
