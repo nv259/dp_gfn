@@ -74,11 +74,6 @@ class LinearTransformerBlock(hk.Module):
             self.embedding_size,
             name='preattn_embedding'
         )(labels)
-        # preattn_labels_embedding = hk.Linear(
-        #     self.embedding_size,
-        #     w_init=w_init,
-        #     name='preattn_linear'
-        # )(labels)
         hiddens = hk.LayerNorm(
             axis=-1,
             create_scale=True, 
@@ -99,11 +94,6 @@ class LinearTransformerBlock(hk.Module):
             self.embedding_size,
             name='preffn_embedding'
         )(labels)
-        # preffn_labels_embedding = hk.Linear(
-        #     self.embedding_size,
-        #     w_init=w_init,
-        #     name='preffn_linear'
-        # )(labels)
         hiddens = hk.LayerNorm(
             axis=-1,
             create_scale=True,
