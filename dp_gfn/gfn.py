@@ -3,6 +3,11 @@ import os
 
 from tqdm import tqdm
 
+from graphviz import Digraph
+import torch
+from torch.autograd import Variable
+from torchviz import make_dot
+
 import hydra
 import torch
 from dp_gfn.nets.gflownet import DPGFlowNet
@@ -138,6 +143,8 @@ class DPGFN:
 
             log_prob = policy_dist.log_prob(actions) * torch.logical_not(batch["done"])
             traj_log_prob += log_prob
+            
+            make_dot(traj_log_prob)
             
             if t == 4: 
                 if traj_log_prob.grad_fn is not None:
