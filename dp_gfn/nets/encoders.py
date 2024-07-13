@@ -66,7 +66,7 @@ class LinearTransformerBlock(hk.Module):
         self.num_tags = num_tags
 
     def __call__(self, edges_embedding, labels):
-        w_init = hk.initializers.VarianceScaling(self.init_scale)
+        # w_init = hk.initializers.VarianceScaling(self.init_scale)
         
         # Attention layer
         preattn_labels_embedding = hk.Embed(
