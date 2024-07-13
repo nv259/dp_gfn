@@ -153,8 +153,8 @@ class DPGFN:
 
             batch.step(actions)
 
-            if batch["done"].all() == True:
-                break
+            # if batch["done"].all() == True:
+                # break
             
             # del logits, uniform_logits, exploitation_dist, policy_dist, actions
             # torch.cuda.empty_cache()
