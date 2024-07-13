@@ -49,7 +49,7 @@ backbone:
         label_embedded: True
         # num_tags: ${num_tags}
         label_embedding_dim: ${model.common.label_embedding_dim}
-    num_layers: 3
+    num_layers: 1
     input_dim: ${model.backbone.encoder_block.input_dim}
     output_dim: ${model.backbone.encoder_block.d_model}
 
