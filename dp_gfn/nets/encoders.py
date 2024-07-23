@@ -27,36 +27,27 @@ from dp_gfn.nets.attention import LinearMultiHeadAttention
 
 
 class DenseBlock(hk.Module):
-    def __init__(self, output_size, init_scale, activation='gelu', name=None):
+    def __init__(self, output_size, init_scale, activation="gelu", name=None):
         super().__init__(name=name)
         self.output_size = output_size
         self.init_scale = init_scale
         self.activation = activation
-        
+
     def __call__(self, inputs):
         input_size = inputs.shape[-1]
-         
+
         w_init = hk.initializers.VarianceScaling(self.init_scale)
-        hiddens = hk.Linear(
-            (input_size + self.output_size) // 2,
-            w_init=w_init
-        )(inputs)
-        
+        hiddens = hk.Linear((input_size + self.output_size) // 2, w_init=w_init)(inputs)
+
         activation = getattr(nn, self.activation)
         hiddens = activation(hiddens)
-        
+
         return hk.Linear(self.output_size, w_init=w_init)(hiddens)
 
-    
+
 class LinearTransformerBlock(hk.Module):
     def __init__(
-        self,
-        num_heads,
-        key_size,
-        embedding_size,
-        init_scale, 
-        num_tags,
-        name=None
+        self, num_heads, key_size, embedding_size, init_scale, num_tags, name=None
     ):
         super().__init__(name=name)
         self.num_heads = num_heads
@@ -67,44 +58,34 @@ class LinearTransformerBlock(hk.Module):
 
     def __call__(self, edges_embedding, labels):
         # w_init = hk.initializers.VarianceScaling(self.init_scale)
-        
+
         # Attention layer
         preattn_labels_embedding = hk.Embed(
-            self.num_tags,
-            self.embedding_size,
-            name='preattn_embedding'
+            self.num_tags, self.embedding_size, name="preattn_embedding"
         )(labels)
         hiddens = hk.LayerNorm(
-            axis=-1,
-            create_scale=True, 
-            create_offset=True,
-            name='preattn_layernorm'
+            axis=-1, create_scale=True, create_offset=True, name="preattn_layernorm"
         )(jnp.concatenate([preattn_labels_embedding, edges_embedding], axis=-1))
         attn = LinearMultiHeadAttention(
             num_heads=self.num_heads,
             key_size=self.key_size,
-            w_init_scale=self.init_scale
+            w_init_scale=self.init_scale,
         )(hiddens, hiddens, hiddens)
-        
+
         edges_embedding = edges_embedding + attn
-        
-        # FFN layer 
+
+        # FFN layer
         preffn_labels_embedding = hk.Embed(
-            self.num_tags,
-            self.embedding_size,
-            name='preffn_embedding'
+            self.num_tags, self.embedding_size, name="preffn_embedding"
         )(labels)
         hiddens = hk.LayerNorm(
-            axis=-1,
-            create_scale=True,
-            create_offset=True,
-            name='preffn_layernorm'
+            axis=-1, create_scale=True, create_offset=True, name="preffn_layernorm"
         )(jnp.concatenate([preffn_labels_embedding, edges_embedding], axis=-1))
         hiddens = DenseBlock(
             output_size=self.num_heads * self.key_size,
             init_scale=self.init_scale,
         )(hiddens)
-        
+
         hiddens = hiddens + edges_embedding
-        
+
         return hiddens
