@@ -1,73 +1,73 @@
 import numpy as np
-import torch
+import jax.numpy as jnp 
+from jax import random
+
+
+MASKED_VALUE = -1e5
 
 
 def encode(decoded):
-    encoded = decoded.reshape(decoded.shape[0], -1).detach().cpu().numpy()
-    return torch.from_numpy(np.packbits(encoded.astype(bool), axis=1))
+    encoded = decoded.reshape(decoded.shape[0], -1)
+    return np.packbits(encoded.astype(bool), axis=1)
 
 
-def decode(encoded, num_variables, device, dtype=torch.float32):
-    encoded = encoded.detach().cpu().numpy()
+def decode(encoded, num_variables):
     decoded = np.unpackbits(encoded, axis=-1, count=num_variables**2)
     decoded = decoded.reshape(*encoded.shape[:-1], num_variables, num_variables)
 
-    return torch.from_numpy(decoded).to(dtype).to(device)
+    return decoded
 
 
 def batched_base_mask(
-    num_words: torch.Tensor | list[int],
+    num_words: list[int],
     num_variables: int,
-    root_first=True,
-    device=torch.device("cpu"),
-) -> torch.Tensor:
-    """
-    Generate the batched base mask for the given number of words and number of variables.
-
-    Only edges from ROOT to 1-num_words nodes are left available (True). Otherwise, set to False.
-    """
-    mask = torch.zeros(num_variables, num_variables, dtype=torch.bool, device=device)
+):
+    mask = jnp.zeros((num_variables, num_variables), dtype=bool)
     mask = mask.repeat(len(num_words), 1, 1)
 
     for batch_idx, num_word in enumerate(num_words):
         num_word = int(num_word)
-
-        if root_first:
-            mask[batch_idx, 0, 1 : num_word + 1] = True
-        else:
-            mask[batch_idx, num_variables - 1, 1 : num_word + 1] = True
+        mask[batch_idx, 0, 1 : num_word + 1] = True
 
     return mask
 
 
 def base_mask(
-    num_words: int, num_variables: int, root_first=True, device=torch.device("cpu")
-) -> torch.Tensor:
-    mask = torch.zeros(num_variables, num_variables, dtype=torch.bool, device=device)
-
-    if root_first:
-        mask[0, 1 : num_words + 1] = True
-    else:
-        mask[num_variables - 1, 1 : num_words + 1] = True
+    num_words: int, num_variables: int
+):
+    mask = jnp.zeros((num_variables, num_variables), dtype=bool)
+    mask[0, 1 : num_words + 1] = True
 
     return mask
 
 
-def mask_logits(logits, masks, MASKED_VALUE=-1e5):
-    masks = masks.reshape(logits.shape)
-
+def mask_logits(logits, masks):
     return masks * logits + (1 - masks) * MASKED_VALUE
 
 
-def mask_uniform_logits(logits, masks, MASKED_VALUE=-1e5):
-    masks = masks.reshape(logits.shape)
-    uniform_logits = torch.ones_like(logits) * 0.5
-
-    return masks * uniform_logits + (1 - masks) * MASKED_VALUE
-
-
-def check_done(adjacency_matrix, num_words):
-    # In a tree, number of edges is equal to number of nodes - 1
-    num_edges = adjacency_matrix.sum((1, 2)) - 1
+def check_done(adjacency_matrices, num_words):
+    num_edges = adjacency_matrices.sum((1, 2)) - 1
 
     return num_edges == num_words
+
+
+def batch_random_choice(key, probas, masks):
+    # Sample from the distribution
+    uniform = random.uniform(key, shape=(probas.shape[0], 1))
+    cum_probas = jnp.cumsum(probas, axis=1)
+    samples = jnp.sum(cum_probas < uniform, axis=1, keepdims=True)
+
+    masks = masks.reshape(masks.shape[0], -1)
+    # is_valid = jnp.take_along_axis(masks, samples, axis=1)    # TODO: Potential risk
+
+    return jnp.squeeze(samples, axis=1)
+
+
+def uniform_log_policy(masks):
+    masks = masks.reshape(masks.shape[0], -1)
+    num_valid_actions = jnp.sum(masks, axis=-1, keepdims=True)
+    log_pi = -jnp.log(num_valid_actions)
+    
+    log_pi = mask_logits(log_pi, masks)
+
+    return log_pi
