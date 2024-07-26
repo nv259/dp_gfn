@@ -1,7 +1,6 @@
 import os
 from collections import namedtuple
 
-import numpy as np
 from tqdm import trange
 
 import haiku as hk
@@ -18,7 +17,7 @@ from jax import grad, jit, vmap
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 from dp_gfn.utils import masking, scores
-
+from functools import partial
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 GFlowNetState = namedtuple("GFlowNetState", ["optimizer", "step"])
@@ -94,8 +93,6 @@ class DPGFN:
         # )
         # self.label_scorer = vmap(self.label_scorer.apply, in_axes=(None, 0, 0, None))
 
-        # TODO: score_fn
-
         self.init_policy()
 
     def initialize_vars(self):
@@ -128,7 +125,6 @@ class DPGFN:
         weight_decay = self.config.algorithm.train.optimizer.weight_decay
 
         # TODO: Implement lr_scheduler
-        # TODO: Implement optimizer
         self.Z_optimizer = optax.adam(Z_lr, weight_decay=weight_decay)
         self.bert_optimizer = optax.adam(bert_factor * Z_lr, weight_decay=weight_decay)
         self.policy_optimizer = optax.adam(policy_lr, weight_decay=weight_decay)
@@ -167,6 +163,7 @@ class DPGFN:
             traj_log_pB
         ) 
 
+    @partial(jit, static_argnums=(0, ))
     def sample(self, state_embeddings, num_words_list):
         states= masking.StateBatch(
             self.batch_size, self.num_variables, num_words_list
@@ -243,3 +240,14 @@ class DPGFN:
     ):
         pass
 
+
+def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1):
+    error = jnp.squeeze(log_Z + traj_log_pF - log_R - traj_log_pB, axis=-1)
+    loss = jnp.mean(optax.huber_loss(error, delta=delta))
+    
+    logs = {
+        'error': error,
+        'loss': loss,
+    }
+    
+    return (loss, logs)
