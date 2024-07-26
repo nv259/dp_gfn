@@ -71,3 +71,106 @@ def uniform_log_policy(masks):
     log_pi = mask_logits(log_pi, masks)
 
     return log_pi
+
+
+class StateBatch:
+    def __init__(
+        self,
+        batch_size,
+        num_variables,
+        num_words,
+    ):
+        self.batch_size = batch_size
+        self.num_variables = num_variables 
+        
+        labels = np.zeros(
+            (
+                batch_size, 
+                num_variables 
+            ),
+            dtype=np.int_,
+        )
+
+        self._data = {
+            "labels": labels,
+            "mask": batched_base_mask(
+                    num_words=num_words,
+                    num_variables=self.num_variables,
+            ),
+            "adjacency": 
+                np.zeros(
+                    (self.batch_size, self.num_variables, self.num_variables), dtype=np.int_
+            ),
+            "num_words": num_words,
+            "done": np.zeros(batch_size, dtype=np.bool_),
+        }
+        self._closure_T = np.eye(self.num_variables, dtype=np.bool_)
+        self._closure_T = self._closure_T.repeat(batch_size, 0)
+
+    def __getitem__(self, key: str):
+        return self._data[key]
+
+    def get_full_data(self, index: int):
+        labels = self._data["labels"][index]
+        mask = self._data["mask"][index]
+        adjacency = self._data["adjacency"][index]
+        num_words = self._data["num_words"][index]
+        done = self._data["done"][index]
+
+        return {
+            "labels": labels,
+            "mask": mask,
+            "adjacency": adjacency,
+            "num_words": num_words,
+            "done": done,
+        }
+
+    def step(self, actions):
+        sources = actions // self.num_variables
+        targets = actions % self.num_variables
+        dones = self._data["done"]
+        sources, targets = sources[~dones], targets[~dones]
+        masks = self.__getitem__("mask")
+        adjacencies = self.__getitem__("adjacency")
+
+        if not np.all(masks[~dones, sources, targets]):
+            raise ValueError("Invalid action")
+
+        # Update adjacency matrices
+        adjacencies[~dones, sources, targets] = 1
+        adjacencies[dones] = 0
+
+        # Update transitive closure of transpose
+        source_rows = np.expand_dims(self._closure_T[~dones, sources, :], axis=1)
+        target_cols = np.expand_dims(self._closure_T[~dones, :, targets], axis=2)
+        self._closure_T[~dones] |= np.logical_and(
+            source_rows, target_cols
+        )  # Outer product
+        self._closure_T[dones] = np.eye(self.num_variables, dtype=np.bool_)
+
+        # Update dones
+        self._data["done"][~dones] = check_done(
+            adjacencies[~dones], self._data["num_words"][~dones]
+        )
+
+        # Update the mask
+        masks = 1 - (adjacencies + self._closure_T)
+        num_parents = np.sum(adjacencies, axis=1, keepdim=True)
+        masks *= num_parents < 1  # each node has only one parent node
+        # Exclude all undue edges
+        for batch_idx, num_word in enumerate(self._data["num_words"]):
+            masks[
+                batch_idx,
+                num_word + 1 : self.num_variables,
+                num_word + 1 : self.num_variables,
+            ] = False
+        masks[:, :, 0] = False
+
+        self._data["mask"] = encode(masks)
+        self._data["adjacency"] = encode(adjacencies)
+        self._data["labels"] = masks.reshape(masks.shape[0], -1) 
+
+    def reset(
+        self,
+    ):
+        pass
