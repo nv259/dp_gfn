@@ -12,7 +12,7 @@ from transformers import AutoTokenizer
 
 from dp_gfn.nets.bert import get_bert_token_embeddings_fn
 from dp_gfn.nets.gflownet import output_logits_fn, output_total_flow_fn
-from dp_gfn.nets.initial_encoders import label_scorer_fn, state_featurizer_fn
+from dp_gfn.nets.initial_encoders import label_score_fn, state_featurizer_fn
 from dp_gfn.utils import masking, scores
 from dp_gfn.utils.pretrains import \
     batch_token_embeddings_to_batch_word_embeddings
