@@ -1,27 +1,25 @@
 import os
 from collections import namedtuple
 
-from tqdm import trange
-
 import haiku as hk
 import jax
 import jax.numpy as jnp
 import optax
-from dp_gfn.nets.bert import get_bert_token_embeddings_fn
-from dp_gfn.nets.gflownet import output_logits_fn, output_total_flow_fn
-from dp_gfn.nets.initial_encoders import state_featurizer_fn, label_scorer_fn
-from dp_gfn.utils import masking
-from dp_gfn.utils.pretrains import batch_token_embeddings_to_batch_word_embeddings
-
 from jax import grad, jit, vmap
 from torch.utils.data import DataLoader
+from tqdm import trange
 from transformers import AutoTokenizer
+
+from dp_gfn.nets.bert import get_bert_token_embeddings_fn
+from dp_gfn.nets.gflownet import output_logits_fn, output_total_flow_fn
+from dp_gfn.nets.initial_encoders import label_scorer_fn, state_featurizer_fn
 from dp_gfn.utils import masking, scores
-from functools import partial
+from dp_gfn.utils.pretrains import \
+    batch_token_embeddings_to_batch_word_embeddings
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 GFlowNetState = namedtuple("GFlowNetState", ["optimizer", "step"])
-GFlowNetParams = namedtuple("GFlowNetParams", ["bert", "state_encoder", "policy"])
+GFlowNetParams = namedtuple("GFlowNetParams", ["bert", "state_encoder", "policy", "Z"])
 
 
 class DPGFN:
@@ -79,9 +77,11 @@ class DPGFN:
         self.gflownet = vmap(
             self.gflownet.apply, in_axes=(None, 0, 0, 0, None, None, None, None)
         )
-        
+
         self.Z = hk.without_apply_rng(hk.transform(output_total_flow_fn))
-        self.Z_params = self.Z.init(self.key, jnp.ones((self.config.bert["hidden_size"], )))
+        self.Z_params = self.Z.init(
+            self.key, jnp.ones((self.config.bert["hidden_size"],))
+        )
         self.Z = vmap(self.Z.apply, in_axes=(None, 0))
 
         # self.label_scorer = hk.without_apply_rng(hk.transform(label_scorer_fn))
@@ -89,7 +89,7 @@ class DPGFN:
         #     self.key,
         #     jnp.ones((self.node_embedding_dim, )),
         #     jnp.ones((self.node_embedding_dim, )),
-        #     self.num_tags 
+        #     self.num_tags
         # )
         # self.label_scorer = vmap(self.label_scorer.apply, in_axes=(None, 0, 0, None))
 
@@ -151,32 +151,27 @@ class DPGFN:
         state_embeddings = jit(self.state_encoder, static_argnums=(2,))(
             state_encoder_params, word_embeddings, self.node_embedding_dim
         )
-        
-        log_Z = jit(self.Z)(sentence_embeddings)
-        traj_log_pF, traj_log_pB, complete_states = self.sample(state_embeddings, num_words_list)
-        log_R = jnp.log(scores.unlabeled_graph_edit_distance(complete_states, golds))
-        
-        return trajectory_balance_loss(
-            log_Z, 
-            traj_log_pF,
-            log_R,
-            traj_log_pB
-        ) 
 
-    @partial(jit, static_argnums=(0, ))
-    def sample(self, state_embeddings, num_words_list):
-        states= masking.StateBatch(
-            self.batch_size, self.num_variables, num_words_list
+        log_Z = jit(self.Z)(Z_params, sentence_embeddings)
+        traj_log_pF, traj_log_pB, complete_states = self.sample(
+            gflownet_params, state_embeddings, num_words_list
         )
-        traj_log_pF = jnp.zeros((self.batch_size, ), dtype=jnp.float32)
-        traj_log_pB = jnp.zeros((self.batch_size, ), dtype=jnp.float32)
-        # Sample complete state through trajectory
+        log_R = jnp.log(scores.unlabeled_graph_edit_distance(complete_states, golds))
+
+        return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
+
+    def sample(self, gflownet_params, state_embeddings, num_words_list):
+        states = masking.StateBatch(self.batch_size, self.num_variables, num_words_list)
+
+        traj_log_pF = jnp.zeros((self.batch_size,), dtype=jnp.float32)
+        traj_log_pB = jnp.zeros((self.batch_size,), dtype=jnp.float32)
+
         for t in range(self.max_number_of_words):
             self.key, subkey1, subkey2 = jax.random.split(self.key, 3)
 
             # Exploitation: Sample action based on GFlowNet policy
             log_pi = jit(self.gflownet, static_argnums=(4, 5, 6, 7))(
-                self.gflownet_params,
+                gflownet_params,
                 state_embeddings,
                 states["labels"],
                 states["masks"],
@@ -192,7 +187,8 @@ class DPGFN:
                 subkey1, p=self.exploration_rate, shape=(self.batch_size, 1)
             )  # TODO: stimulated annealing
 
-            # Mixing GFlowNet policy and uniform policy: pi = (1 - delta) * Policy + delta * Uniform
+            # Mixing GFlowNet policy and uniform policy:
+            # \pi = (1 - delta) * Policy + delta * Uniform
             log_pi = jnp.where(is_exploration, log_uniform, log_pi)
 
             # Sample actions
@@ -202,11 +198,13 @@ class DPGFN:
 
             log_probs = jnp.take_along_axis(log_pi, actions, axis=1)
             traj_log_pF += log_probs
-            traj_log_pB += masking.uniform_log_policy(states["masks"])  # Uniform backward policy
-            
+            traj_log_pB += masking.uniform_log_policy(
+                states["masks"]
+            )  # Uniform backward policy
+
             # Move to the next state
             states.step(actions)
-        
+
         return traj_log_pF, traj_log_pB, states
 
     def train(self, train_loader: DataLoader, val_loader: DataLoader):
@@ -214,6 +212,15 @@ class DPGFN:
 
         with trange(self.max_steps, desc="Training") as pbar:
             for iteration in pbar:
+                print(self.bert_params) 
+                print()
+                print(self.state_encoder_params)
+                print()
+                print(self.gflownet_params)
+                print()
+                print(self.Z_params)
+                print()
+                
                 batch = next(iter(train_loader))
 
                 tokens = self.tokenizer(
@@ -223,7 +230,22 @@ class DPGFN:
                     truncation=True,
                     add_special_tokens=False,
                 )
+
+                grads, logs = grad(self.loss, argnums=(0, 1, 2, 3, ),has_aux=True)(
+                    self.bert_params,
+                    self.state_encoder_params,
+                    self.gflownet_params,
+                    self.Z_params,
+                    tokens,
+                    batch["num_words"],
+                    batch["graph"]
+                ) 
                 
+                print(grads)
+                
+                # updates, opt_state = self.bert_optimizer.update(
+                #     grads,
+                # )
                 
                 pbar.set_postfix(loss=f"{logs['loss']:.2f}")
 
@@ -244,10 +266,10 @@ class DPGFN:
 def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1):
     error = jnp.squeeze(log_Z + traj_log_pF - log_R - traj_log_pB, axis=-1)
     loss = jnp.mean(optax.huber_loss(error, delta=delta))
-    
+
     logs = {
-        'error': error,
-        'loss': loss,
+        "error": error,
+        "loss": loss,
     }
-    
+
     return (loss, logs)
