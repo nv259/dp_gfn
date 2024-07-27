@@ -1,13 +1,9 @@
-import numpy as np
-
 from dp_gfn.utils.pretrains import batch_token_embeddings_to_batch_word_embeddings
 
 import haiku as hk
 import jax.numpy as jnp
-from transformers import AutoTokenizer, AutoConfig
+from transformers import AutoConfig
 from dp_gfn.nets.bert import BertModel
-from jax import jit, vmap
-from functools import partial
 
 
 class StateEncoder(hk.Module):
@@ -73,16 +69,14 @@ class PrefEncoder(hk.Module):
 
 
 class LabelScorer(hk.Module):
-    def __init__(self, num_tags, init_scale, intermediate_dim=128, activation="relu"):
+    def __init__(self, num_tags, intermediate_dim=128):
         super().__init__()
 
         self.num_tags = num_tags
-        self.init_scale = init_scale
         self.intermediate_dim = intermediate_dim
-        self.activation = activation
 
     def __call__(self, head, dep):
-        w_init = hk.initializers.VarianceScaling(self.init_scale)
+        w_init = hk.initializers.RandomNormal()
 
         W = hk.get_parameter(
             name="W",
@@ -108,3 +102,9 @@ class LabelScorer(hk.Module):
         lab_score = arc_score + head_score + dep_score + b
 
         return lab_score
+
+
+def label_score_fn(head, dep, num_tags):
+    lab_score = LabelScorer(num_tags=num_tags)(head, dep)
+
+    return lab_score 
