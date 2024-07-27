@@ -35,7 +35,7 @@ def batched_base_mask(
 def base_mask(
     num_words: int, num_variables: int
 ):
-    mask = np.zeros((num_variables, num_variables), dtype=bool)
+    mask = np.zeros(num_variables, num_variables, dtype=bool)
     mask[0, 1 : num_words + 1] = True
 
     return mask
