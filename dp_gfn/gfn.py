@@ -8,7 +8,7 @@ import optax
 from jax import grad, jit, vmap
 from torch.utils.data import DataLoader
 from tqdm import trange
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoConfig
 
 from dp_gfn.nets.bert import get_bert_token_embeddings_fn
 from dp_gfn.nets.gflownet import output_logits_fn, output_total_flow_fn
@@ -33,14 +33,15 @@ class DPGFN:
         self.tokenizer = AutoTokenizer.from_pretrained(
             config.model.pref_encoder.pretrained_path
         )
+        
         self.bert = hk.without_apply_rng(hk.transform(get_bert_token_embeddings_fn))
         self.bert_params = self.bert.init(
             self.key,
             jnp.ones(
                 (
                     self.batch_size,
-                    self.config.bert["max_position_embeddings"],
-                    self.config.bert["hidden_size"],
+                    self.bert_config["max_position_embeddings"],
+                    self.bert_config["hidden_size"],
                 )
             ),
         )
@@ -52,7 +53,7 @@ class DPGFN:
                 (
                     self.batch_size,
                     self.max_number_of_words,
-                    self.config.bert["hidden_size"],
+                    self.bert_config["hidden_size"],
                 )
             ),
             self.max_number_of_words,
@@ -80,7 +81,7 @@ class DPGFN:
 
         self.Z = hk.without_apply_rng(hk.transform(output_total_flow_fn))
         self.Z_params = self.Z.init(
-            self.key, jnp.ones((self.config.bert["hidden_size"],))
+            self.key, jnp.ones((self.bert_config["hidden_size"],))
         )
         self.Z = vmap(self.Z.apply, in_axes=(None, 0))
 
@@ -101,12 +102,12 @@ class DPGFN:
 
         self.max_number_of_words = self.config.max_number_of_words
         self.batch_size = self.config.batch_size
-        self.device = self.config.device
-        self.node_embedding_dim = self.config.node_embedding_dim
+        # self.device = self.config.device
+        self.node_embedding_dim = self.config.model.common.node_embedding_dim
 
         config = self.config.algorithm
-        self.backward_policy = config.backward_policy
-        self.score_fn = config.score_fn
+        # self.backward_policy = config.backward_policy
+        # self.score_fn = config.score_fn
 
         # train hyperparameters
         config = config.train
@@ -115,6 +116,11 @@ class DPGFN:
         self.eval_on_train = config.eval_on_train
         self.exploration_rate = config.exploration_rate
         self.clip_grad = config.clip_grad
+        
+        # pretrained config
+        self.bert_config = AutoConfig(
+            config.model.pref_encoder.pretrained_path
+        ).to_dict()
 
     def init_policy(self):
         self.model = hk.without_apply_rng(hk.transform(GFlowNetState))
