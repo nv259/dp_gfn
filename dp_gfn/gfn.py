@@ -99,6 +99,9 @@ class DPGFN:
     def initialize_vars(self):
         self.init_scale = 2.0 / self.config.model.backbone.num_layers
         self.key = jax.random.PRNGKey(self.config.seed)
+        self.bert_config = AutoConfig(
+            self.config.model.pref_encoder.pretrained_path
+        ).to_dict()
 
         self.max_number_of_words = self.config.max_number_of_words
         self.batch_size = self.config.batch_size
@@ -118,9 +121,6 @@ class DPGFN:
         self.clip_grad = config.clip_grad
         
         # pretrained config
-        self.bert_config = AutoConfig(
-            config.model.pref_encoder.pretrained_path
-        ).to_dict()
 
     def init_policy(self):
         self.model = hk.without_apply_rng(hk.transform(GFlowNetState))
