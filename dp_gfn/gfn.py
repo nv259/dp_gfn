@@ -31,12 +31,13 @@ class DPGFN:
         self.initialize_vars()
 
         self.tokenizer = AutoTokenizer.from_pretrained(
-            config.model.pref_encoder.pretrained_path
+            self.config.model.pref_encoder.pretrained_path
         )
         
         self.bert = hk.without_apply_rng(hk.transform(get_bert_token_embeddings_fn))
         self.bert_params = self.bert.init(
             self.key,
+            self.bert_config,
             jnp.ones(
                 (
                     self.batch_size,
@@ -147,7 +148,7 @@ class DPGFN:
         golds,
     ):
         # Initialize state embeddings
-        token_embeddings = jit(self.bert.apply)(bert_params, **tokens)
+        token_embeddings = jit(self.bert.apply, static_argnums=(0, ))(bert_params, **tokens)
         sentence_embeddings = token_embeddings.mean(1)
         word_embeddings = batch_token_embeddings_to_batch_word_embeddings(
             tokens=tokens,
