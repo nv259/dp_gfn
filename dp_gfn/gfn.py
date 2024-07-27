@@ -108,7 +108,7 @@ class DPGFN:
         self.batch_size = self.config.batch_size
         self.num_layers = self.config.model.backbone.num_layers
         self.num_heads = self.config.model.backbone.encoder_block.num_heads
-        self.key_size = self.config.model.backbone.encoder_block.key_size
+        self.key_size = self.config.model.backbone.encoder_block.d_k
         self.node_embedding_dim = self.config.model.common.node_embedding_dim
         self.init_scale = 2.0 / self.config.model.backbone.num_layers
 
