@@ -99,7 +99,6 @@ class DPGFN:
         self.init_policy()
 
     def initialize_vars(self):
-        self.init_scale = 2.0 / self.config.model.backbone.num_layers
         self.key = jax.random.PRNGKey(self.config.seed)
         self.bert_config = AutoConfig.from_pretrained(
             self.config.model.pref_encoder.pretrained_path
@@ -107,8 +106,11 @@ class DPGFN:
 
         self.max_number_of_words = self.config.max_number_of_words
         self.batch_size = self.config.batch_size
-        # self.device = self.config.device
+        self.num_layers = self.config.model.backbone.num_layers
+        self.num_heads = self.config.model.backbone.encoder_block.num_heads
+        self.key_size = self.config.model.backbone.encoder_block.key_size
         self.node_embedding_dim = self.config.model.common.node_embedding_dim
+        self.init_scale = 2.0 / self.config.model.backbone.num_layers
 
         config = self.config.algorithm
         # self.backward_policy = config.backward_policy
