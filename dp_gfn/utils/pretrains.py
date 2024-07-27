@@ -1,4 +1,3 @@
-import torch
 import jax.numpy as jnp
 
 
@@ -67,13 +66,13 @@ def batch_token_embeddings_to_batch_word_embeddings(
     return batch_word_embeddings
 
 
-def get_pretrained_parameters(pretrained_weights, keyword='.'):
+def get_pretrained_parameters(pretrained_weights, keyword="."):
     res = []
-    
+
     for key in pretrained_weights.weights.keys():
         if keyword in key:
             res.append(key)
-            
+
     return res
 
 
@@ -81,9 +80,9 @@ def split_into_heads(x, num_heads):
     return jnp.reshape(
         x,
         [
-            x.shape[0], # batch_size
-            x.shape[1], # seq_len
-            num_heads, 
-            x.shape[2] // num_heads
-        ]
+            x.shape[0],  # batch_size
+            x.shape[1],  # seq_len
+            num_heads,
+            x.shape[2] // num_heads,
+        ],
     )
