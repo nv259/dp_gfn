@@ -64,13 +64,14 @@ class DPGFN:
         self.state_encoder = vmap(self.state_encoder.apply, in_axes=(None, 0, None))
 
         self.gflownet = hk.without_apply_rng(hk.transform(output_logits_fn))
+        base_mask = masking.base_mask(7, self.max_number_of_words),
         self.gflownet_params = self.gflownet.init(
             self.key,
             jnp.ones((self.max_number_of_words**2, self.node_embedding_dim * 2)),
             jnp.ones(
                 (self.max_number_of_words**2,), dtype=int
             ),  # TODO: use int label here, what about labels' embeddings?
-            masking.base_mask(7, self.max_number_of_words),
+            base_mask,
             self.num_tags,
             self.num_layers,
             self.num_heads,
