@@ -78,6 +78,8 @@ def output_logits_fn(
     num_heads,
     key_size,
 ):
+    print(masks)
+    
     num_variables = math.sqrt(edges_embedding.shape[-2])
     node_embedding_dim = edges_embedding.shape[-1] // 2
     
