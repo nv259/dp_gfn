@@ -42,10 +42,11 @@ class DPGFN:
                 (
                     self.batch_size,
                     self.bert_config["max_position_embeddings"],
-                )
+                ),
+                dtype=jnp.int32
             ),
-            jnp.ones((self.batch_size, self.bert_config["max_position_embeddings"],)),
-            jnp.ones((self.batch_size, self.bert_config["max_position_embeddings"],)),
+            jnp.ones((self.batch_size, self.bert_config["max_position_embeddings"],), dtype=jnp.int32),
+            jnp.ones((self.batch_size, self.bert_config["max_position_embeddings"],), dtype=jnp.int32),
         )
 
         self.state_encoder = hk.without_apply_rng(hk.transform(state_featurizer_fn))
