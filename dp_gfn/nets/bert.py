@@ -385,9 +385,9 @@ class BertModel(hk.Module):
 
 
 def get_bert_token_embeddings_fn(
-    self, input_ids, token_type_ids, attention_mask, training=False
+    input_ids, token_type_ids, attention_mask, training=False
 ):
-    config = self.config.model.pref_encoder.pretrained_path
+    config = config.model.pref_encoder.pretrained_path
     token_embeddings = BertModel(config)(
         input_ids, token_type_ids, attention_mask, training=training
     )
