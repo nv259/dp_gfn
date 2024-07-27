@@ -1,17 +1,10 @@
 import logging
-from typing import Any
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 from dp_gfn.nets.encoders import (
     DenseBlock,
     LinearTransformerBlock,
 )
-from dp_gfn.nets.initial_encoders import LabelScorer, PrefEncoder, StateEncoder
-from dp_gfn.utils.masking import mask_logits
 
-from hydra.utils import instantiate
 import haiku as hk
 import jax.numpy as jnp
 import numpy as np
@@ -46,7 +39,6 @@ class DPGFlowNet(hk.Module):
         self.model_size = self.key_size * self.num_heads
 
         self.init_scale = 2.0 / self.num_layers
-        self.pretrained_path = ""
 
     def __call__(self, edges_embedding, labels, masks):
         for i in range(self.num_layers):
@@ -61,7 +53,7 @@ class DPGFlowNet(hk.Module):
         logits = DenseBlock(1, init_scale=self.init_scale)(edges_embedding)
         log_pi = log_policy(logits, masks)
         
-        return logits.squeeze(-1)
+        return log_pi.squeeze(-1)
 
     def Z(self, pref):
         return DenseBlock(
