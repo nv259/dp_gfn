@@ -64,6 +64,9 @@ class DPGFlowNet(hk.Module):
 
 
 def log_policy(logits, masks):
+    print(logits.dtype)
+    print(masks.dtype)
+    print(masks)
     masks = masks.reshape(logits.shape)
     logits = masking.mask_logits(logits, masks)
     log_pi = jax.nn.log_softmax(logits, axis=-1)

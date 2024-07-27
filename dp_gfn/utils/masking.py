@@ -36,7 +36,9 @@ def base_mask(
     num_words: int, num_variables: int
 ):
     mask = np.zeros((num_variables, num_variables), dtype=bool)
+    print(mask.dtype)
     mask[0, 1 : num_words + 1] = True
+    print(mask.dtype)
 
     return mask
 
