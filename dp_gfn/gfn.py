@@ -59,9 +59,7 @@ class DPGFN:
                     self.bert_config["hidden_size"],
                 )
             ),
-            self.max_number_of_words,
             self.node_embedding_dim,
-            self.init_scale,
         )
         self.state_encoder = vmap(self.state_encoder.apply, in_axes=(None, 0, None))
 
