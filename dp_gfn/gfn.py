@@ -99,7 +99,7 @@ class DPGFN:
     def initialize_vars(self):
         self.init_scale = 2.0 / self.config.model.backbone.num_layers
         self.key = jax.random.PRNGKey(self.config.seed)
-        self.bert_config = AutoConfig(
+        self.bert_config = AutoConfig.from_pretrained(
             self.config.model.pref_encoder.pretrained_path
         ).to_dict()
 
