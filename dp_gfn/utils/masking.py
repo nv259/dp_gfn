@@ -23,7 +23,7 @@ def batched_base_mask(
     num_variables: int,
 ):
     mask = np.zeros((num_variables, num_variables), dtype=bool)
-    mask = mask.repeat(len(num_words), 1, 1)
+    mask = np.repeat(mask[np.newaxis, ...], len(num_words), axis=0)
 
     for batch_idx, num_word in enumerate(num_words):
         num_word = int(num_word)
@@ -35,10 +35,8 @@ def batched_base_mask(
 def base_mask(
     num_words: int, num_variables: int
 ):
-    mask = np.zeros((num_variables, num_variables), dtype=bool)
-    print(mask.dtype)
+    mask = np.zeros((num_variables, num_variables), dtype=np.bool_)
     mask[0, 1 : num_words + 1] = True
-    print(mask.dtype)
 
     return mask
 
@@ -62,15 +60,16 @@ def batch_random_choice(key, probas, masks):
     masks = masks.reshape(masks.shape[0], -1)
     # is_valid = jnp.take_along_axis(masks, samples, axis=1)    # TODO: Potential risk
 
-    return jnp.squeeze(samples, axis=1)
+    return samples
 
 
-def uniform_log_policy(masks):
+def uniform_log_policy(masks, is_forward=True):
     masks = masks.reshape(masks.shape[0], -1)
     num_valid_actions = jnp.sum(masks, axis=-1, keepdims=True)
     log_pi = -jnp.log(num_valid_actions)
-    
-    log_pi = mask_logits(log_pi, masks)
+   
+    if is_forward:  
+        log_pi = mask_logits(log_pi, masks)    
 
     return log_pi
 
@@ -88,7 +87,7 @@ class StateBatch:
         labels = np.zeros(
             (
                 batch_size, 
-                num_variables 
+                num_variables**2 
             ),
             dtype=np.int_,
         )
