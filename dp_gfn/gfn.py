@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from tqdm import trange
 from transformers import AutoTokenizer, AutoConfig
 
-from dp_gfn.nets.bert import get_bert_token_embeddings_fn
+from dp_gfn.nets import bert
 from dp_gfn.nets.gflownet import output_logits_fn, output_total_flow_fn
 from dp_gfn.nets.initial_encoders import label_score_fn, state_featurizer_fn
 from dp_gfn.utils import masking, scores
@@ -34,10 +34,11 @@ class DPGFN:
             self.config.model.pref_encoder.pretrained_path
         )
         
-        self.bert = hk.without_apply_rng(hk.transform(get_bert_token_embeddings_fn))
-        self.bert_params = self.bert.init(
+        bert.init(self.config.model.pref_encoder.pretrained_path) 
+        self.bert_model = hk.without_apply_rng(hk.transform(bert.get_bert_token_embeddings_fn))
+        self.bert_params = self.bert_model.init(
             self.key,
-            self.bert_config,
+            # self.bert_config,
             jnp.ones(
                 (
                     self.batch_size,
@@ -55,7 +56,7 @@ class DPGFN:
             jnp.ones(
                 (
                     self.batch_size,
-                    self.max_number_of_words,
+                    self.num_variables,
                     self.bert_config["hidden_size"],
                 )
             ),
@@ -64,12 +65,12 @@ class DPGFN:
         self.state_encoder = vmap(self.state_encoder.apply, in_axes=(None, 0, None))
 
         self.gflownet = hk.without_apply_rng(hk.transform(output_logits_fn))
-        base_mask = masking.base_mask(7, self.max_number_of_words),
+        base_mask = masking.base_mask(7, self.num_variables)
         self.gflownet_params = self.gflownet.init(
             self.key,
-            jnp.ones((self.max_number_of_words**2, self.node_embedding_dim * 2)),
+            jnp.ones((self.num_variables**2, self.node_embedding_dim * 2)),
             jnp.ones(
-                (self.max_number_of_words**2,), dtype=int
+                (self.num_variables**2,), dtype=int
             ),  # TODO: use int label here, what about labels' embeddings?
             base_mask,
             self.num_tags,
@@ -104,13 +105,14 @@ class DPGFN:
             self.config.model.pref_encoder.pretrained_path
         ).to_dict()
 
-        self.max_number_of_words = self.config.max_number_of_words
+        self.num_variables = self.config.max_number_of_words + 1
         self.batch_size = self.config.batch_size
         self.num_layers = self.config.model.backbone.num_layers
         self.num_heads = self.config.model.backbone.encoder_block.num_heads
         self.key_size = self.config.model.backbone.encoder_block.d_k
         self.node_embedding_dim = self.config.model.common.node_embedding_dim
         self.init_scale = 2.0 / self.config.model.backbone.num_layers
+        self.agg_func = self.config.model.pref_encoder.agg_func
 
         config = self.config.algorithm
         # self.backward_policy = config.backward_policy
@@ -132,12 +134,12 @@ class DPGFN:
         policy_lr = self.config.algorithm.train.optimizer.policy_lr
         Z_lr = self.config.algorithm.train.optimizer.Z_lr
         bert_factor = self.config.algorithm.train.optimizer.bert_factor
-        weight_decay = self.config.algorithm.train.optimizer.weight_decay
+        # weight_decay = self.config.algorithm.train.optimizer.weight_decay
 
         # TODO: Implement lr_scheduler
-        self.Z_optimizer = optax.adam(Z_lr, weight_decay=weight_decay)
-        self.bert_optimizer = optax.adam(bert_factor * Z_lr, weight_decay=weight_decay)
-        self.policy_optimizer = optax.adam(policy_lr, weight_decay=weight_decay)
+        self.Z_optimizer = optax.adam(Z_lr)
+        self.bert_optimizer = optax.adam(bert_factor * Z_lr)
+        self.policy_optimizer = optax.adam(policy_lr)
 
     def loss(
         self,
@@ -150,13 +152,13 @@ class DPGFN:
         golds,
     ):
         # Initialize state embeddings
-        token_embeddings = jit(self.bert.apply, static_argnums=(0, ))(bert_params, **tokens)
+        token_embeddings = jit(self.bert_model.apply)(bert_params, **tokens)
         sentence_embeddings = token_embeddings.mean(1)
         word_embeddings = batch_token_embeddings_to_batch_word_embeddings(
             tokens=tokens,
             token_embeddings=token_embeddings,
             agg_func=self.agg_func,
-            max_word_length=self.max_word_length,
+            max_word_length=self.num_variables,
         )
         state_embeddings = jit(self.state_encoder, static_argnums=(2,))(
             state_encoder_params, word_embeddings, self.node_embedding_dim
@@ -173,10 +175,10 @@ class DPGFN:
     def sample(self, gflownet_params, state_embeddings, num_words_list):
         states = masking.StateBatch(self.batch_size, self.num_variables, num_words_list)
 
-        traj_log_pF = jnp.zeros((self.batch_size,), dtype=jnp.float32)
-        traj_log_pB = jnp.zeros((self.batch_size,), dtype=jnp.float32)
+        traj_log_pF = jnp.zeros((self.batch_size, 1), dtype=jnp.float32)
+        traj_log_pB = jnp.zeros((self.batch_size, 1), dtype=jnp.float32)
 
-        for t in range(self.max_number_of_words):
+        for t in range(self.num_variables):
             self.key, subkey1, subkey2 = jax.random.split(self.key, 3)
 
             # Exploitation: Sample action based on GFlowNet policy
@@ -184,7 +186,7 @@ class DPGFN:
                 gflownet_params,
                 state_embeddings,
                 states["labels"],
-                states["masks"],
+                states["mask"],
                 self.num_tags,
                 self.num_layers,
                 self.num_heads,
@@ -192,7 +194,7 @@ class DPGFN:
             )
 
             # Exploration: Sample action uniformly at random
-            log_uniform = masking.uniform_log_policy(states["masks"])
+            log_uniform = masking.uniform_log_policy(states["mask"])
             is_exploration = jax.random.bernoulli(
                 subkey1, p=self.exploration_rate, shape=(self.batch_size, 1)
             )  # TODO: stimulated annealing
@@ -203,13 +205,14 @@ class DPGFN:
 
             # Sample actions
             actions = masking.batch_random_choice(
-                subkey2, jnp.exp(log_pi), states["masks"]
+                subkey2, jnp.exp(log_pi), states["mask"]
             )
 
             log_probs = jnp.take_along_axis(log_pi, actions, axis=1)
             traj_log_pF += log_probs
             traj_log_pB += masking.uniform_log_policy(
-                states["masks"]
+                states["mask"],
+                is_forward=False,
             )  # Uniform backward policy
 
             # Move to the next state
@@ -222,15 +225,6 @@ class DPGFN:
 
         with trange(self.max_steps, desc="Training") as pbar:
             for iteration in pbar:
-                print(self.bert_params) 
-                print()
-                print(self.state_encoder_params)
-                print()
-                print(self.gflownet_params)
-                print()
-                print(self.Z_params)
-                print()
-                
                 batch = next(iter(train_loader))
 
                 tokens = self.tokenizer(
@@ -241,7 +235,7 @@ class DPGFN:
                     add_special_tokens=False,
                 )
 
-                grads, logs = grad(self.loss, argnums=(0, 1, 2, 3, ),has_aux=True)(
+                grads, logs = grad(self.loss, argnums=(0, 1, 2, 3, ), has_aux=True)(
                     self.bert_params,
                     self.state_encoder_params,
                     self.gflownet_params,
