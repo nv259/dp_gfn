@@ -51,11 +51,10 @@ class DPGFlowNet(hk.Module):
             )(edges_embedding, labels)
 
         logits = DenseBlock(1, init_scale=self.init_scale)(edges_embedding)
-        print(masks.dtype)
-        print(masks)
+        logits = logits.squeeze(-1)
         log_pi = log_policy(logits, masks)
         
-        return log_pi.squeeze(-1)
+        return log_pi
 
     def Z(self, pref):
         return DenseBlock(
@@ -64,9 +63,6 @@ class DPGFlowNet(hk.Module):
 
 
 def log_policy(logits, masks):
-    print(logits.dtype)
-    print(masks.dtype)
-    print(masks)
     masks = masks.reshape(logits.shape)
     logits = masking.mask_logits(logits, masks)
     log_pi = jax.nn.log_softmax(logits, axis=-1)
@@ -83,9 +79,7 @@ def output_logits_fn(
     num_heads,
     key_size,
 ):
-    print(masks.dtype)
-    
-    num_variables = math.sqrt(edges_embedding.shape[-2])
+    num_variables = int(math.sqrt(edges_embedding.shape[-2]))
     node_embedding_dim = edges_embedding.shape[-1] // 2
     
     logits = DPGFlowNet(
