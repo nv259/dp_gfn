@@ -27,7 +27,7 @@ from dp_gfn.nets.attention import LinearMultiHeadAttention
 
 
 class DenseBlock(hk.Module):
-    def __init__(self, output_size, init_scale, activation="gelu", name=None):
+    def __init__(self, output_size, init_scale=None, activation="gelu", name=None):
         super().__init__(name=name)
         self.output_size = output_size
         self.init_scale = init_scale
@@ -36,7 +36,12 @@ class DenseBlock(hk.Module):
     def __call__(self, inputs):
         input_size = inputs.shape[-1]
 
-        w_init = hk.initializers.VarianceScaling(self.init_scale)
+        w_init = (
+            hk.initializers.RandomNormal()
+            if self.init_scale is None
+            else hk.initializers.VarianceScaling(self.init_scale)
+        )
+
         hiddens = hk.Linear((input_size + self.output_size) // 2, w_init=w_init)(inputs)
 
         activation = getattr(nn, self.activation)
