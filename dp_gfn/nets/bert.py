@@ -2,15 +2,16 @@ import numpy as np
 import jax.numpy as jnp
 import jax
 import haiku as hk
-from transformers import BertModel, BertConfig
+from transformers import AutoModel, AutoConfig
 from dp_gfn.utils.pretrains import split_into_heads
+from hydra import initialize, compose
 
 
 class PretrainedWeights(object):
     def __init__(self, path_to_pretrained):
         self.path_to_pretrained = path_to_pretrained
 
-        pretrained_model = BertModel.from_pretrained(path_to_pretrained)
+        pretrained_model = AutoModel.from_pretrained(path_to_pretrained)
         self.weights = dict(pretrained_model.named_parameters())
 
     def __getitem__(self, path_to_weight):
@@ -28,8 +29,13 @@ class PretrainedWeights(object):
         return str(self.weights.keys())
 
 
-PRETRAINED_WEIGHTS = PretrainedWeights("bert-base-uncased")
-CONFIG = BertConfig("bert-base-uncased")
+def init(pretrained_path):
+    global PRETRAINED_WEIGHTS, CONFIG
+    
+    PRETRAINED_WEIGHTS = PretrainedWeights(pretrained_path)
+    CONFIG = AutoConfig.from_pretrained(pretrained_path).to_dict()
+
+    return 0
 
 
 class Embeddings(hk.Module):
@@ -385,10 +391,11 @@ class BertModel(hk.Module):
 
 
 def get_bert_token_embeddings_fn(
-    config, input_ids, token_type_ids, attention_mask, training=False
+    input_ids, token_type_ids, attention_mask, training=False
 ):
-    token_embeddings = BertModel(config)(
+    token_embeddings = BertModel(CONFIG)(
         input_ids, token_type_ids, attention_mask, training=training
     )
 
     return token_embeddings
+
