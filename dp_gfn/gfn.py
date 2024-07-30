@@ -105,7 +105,7 @@ class DPGFN:
             self.config.model.pref_encoder.pretrained_path
         ).to_dict()
 
-        self.num_variables = self.config.max_number_of_words + 1
+        self.num_variables = self.config.max_number_of_words
         self.batch_size = self.config.batch_size
         self.num_layers = self.config.model.backbone.num_layers
         self.num_heads = self.config.model.backbone.encoder_block.num_heads
@@ -175,8 +175,8 @@ class DPGFN:
     def sample(self, gflownet_params, state_embeddings, num_words_list):
         states = masking.StateBatch(self.batch_size, self.num_variables, num_words_list)
 
-        traj_log_pF = jnp.zeros((self.batch_size, 1), dtype=jnp.float32)
-        traj_log_pB = jnp.zeros((self.batch_size, 1), dtype=jnp.float32)
+        traj_log_pF = jnp.zeros((self.batch_size,), dtype=jnp.float32)
+        traj_log_pB = jnp.zeros((self.batch_size,), dtype=jnp.float32)
 
         for t in range(self.num_variables):
             self.key, subkey1, subkey2 = jax.random.split(self.key, 3)
@@ -208,15 +208,15 @@ class DPGFN:
                 subkey2, jnp.exp(log_pi), states["mask"]
             )
 
-            log_probs = jnp.take_along_axis(log_pi, actions, axis=1)
+            log_probs = jnp.take_along_axis(log_pi, actions, axis=1).squeeze(-1)
             traj_log_pF += log_probs
             traj_log_pB += masking.uniform_log_policy(
                 states["mask"],
                 is_forward=False,
-            )  # Uniform backward policy
+            )  # Uniform backward policy TODO: 
 
             # Move to the next state
-            states.step(actions)
+            states.step(actions.squeeze(-1))
 
         return traj_log_pF, traj_log_pB, states
 
@@ -226,7 +226,7 @@ class DPGFN:
         with trange(self.max_steps, desc="Training") as pbar:
             for iteration in pbar:
                 batch = next(iter(train_loader))
-
+                
                 tokens = self.tokenizer(
                     batch["text"],
                     return_tensors="jax",
