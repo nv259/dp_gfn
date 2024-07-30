@@ -1,4 +1,4 @@
-import torch
+import jax.numpy as jnp
 
 
 def token_embeddings_to_word_embeddings(
@@ -22,17 +22,17 @@ def token_embeddings_to_word_embeddings(
             elif agg_func == "last":
                 word_embedding = token_embeddings[batch_idx, end - 1]
             else:
-                word_embedding = getattr(torch, agg_func)(
-                    token_embeddings[batch_idx, start:end], dim=0
+                word_embedding = getattr(jnp, agg_func)(
+                    token_embeddings[batch_idx, start:end], axis=0
                 )
         except:
             raise NotImplementedError
 
         word_embeddings.append(word_embedding)
 
-    word_embeddings = torch.stack(word_embeddings)
+    word_embeddings = jnp.stack(word_embeddings)
     # Padding to max_word_length
-    word_embeddings = torch.cat(
+    word_embeddings = jnp.concatenate(
         [
             word_embeddings,
             token_embeddings[
@@ -46,7 +46,7 @@ def token_embeddings_to_word_embeddings(
 
 def batch_token_embeddings_to_batch_word_embeddings(
     tokens, token_embeddings, agg_func="mean", max_word_length=160
-) -> torch.Tensor:
+):
     batch_size = token_embeddings.shape[0]
     batch_word_embeddings = []
 
@@ -61,6 +61,28 @@ def batch_token_embeddings_to_batch_word_embeddings(
             )
         )
 
-    batch_word_embeddings = torch.stack(batch_word_embeddings)
+    batch_word_embeddings = jnp.stack(batch_word_embeddings)
 
     return batch_word_embeddings
+
+
+def get_pretrained_parameters(pretrained_weights, keyword="."):
+    res = []
+
+    for key in pretrained_weights.weights.keys():
+        if keyword in key:
+            res.append(key)
+
+    return res
+
+
+def split_into_heads(x, num_heads):
+    return jnp.reshape(
+        x,
+        [
+            x.shape[0],  # batch_size
+            x.shape[1],  # seq_len
+            num_heads,
+            x.shape[2] // num_heads,
+        ],
+    )

@@ -24,7 +24,7 @@ state_encoder:
     # word_embedding_dim
     node_embedding_dim: ${model.common.node_embedding_dim}
     label_embedding_dim: ${model.common.label_embedding_dim}
-    hidden_layers:    # in_features -> 128 (act) -> 128 (act) -> out_features
+    # hidden_layers:    # in_features -> 128 (act) -> 128 (act) -> out_features
     dropout_rate: ${model.common.dropout_rate}
     activation: ${model.common.activation}
     encode_label: ${init_label_embeddings}
@@ -36,11 +36,11 @@ backbone:
     encoder_block:
         _partial_: True
         _target_: dp_gfn.nets.encoders.LinearTransformerBlock
-        input_dim: 384                 # node_emb | node_emb | label_em
+        input_dim: 192                  # node_emb | node_emb | label_em
         num_heads: 4
-        d_k: 64
-        d_v: 64
-        d_model: 256                    # node_emb | node_emb  
+        d_k: 32
+        d_v: 32
+        d_model: 128                    # node_emb | node_emb  
         activation: ${model.common.activation}
         attn_dropout: ${model.common.dropout_rate}
         mlp_dropout: ${model.common.dropout_rate}
@@ -70,6 +70,7 @@ output_logits:
     _target_: dp_gfn.nets.encoders.MLP
     input_dim: ${model.backbone.output_dim}
     # output_dim: num_variables ** 2 
+    # hidden_layers: [64]
     # hidden_layers: ${model.common.hidden_layers}
     dropout_rate: ${model.common.dropout_rate}
     activation: ${model.common.activation}

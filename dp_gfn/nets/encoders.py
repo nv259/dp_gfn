@@ -1,137 +1,96 @@
-from typing import Optional
+"""
+Copyright (c) 2022 Tristan Deleu
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+
+import haiku as hk
+import jax.nn as nn
+import jax.numpy as jnp
 from dp_gfn.nets.attention import LinearMultiHeadAttention
 
 
-class MLP(nn.Module):
+class DenseBlock(hk.Module):
+    def __init__(self, output_size, init_scale=None, activation="gelu", name=None):
+        super().__init__(name=name)
+        self.output_size = output_size
+        self.init_scale = init_scale
+        self.activation = activation
+
+    def __call__(self, inputs):
+        input_size = inputs.shape[-1]
+
+        w_init = (
+            hk.initializers.RandomNormal()
+            if self.init_scale is None
+            else hk.initializers.VarianceScaling(self.init_scale)
+        )
+
+        hiddens = hk.Linear((input_size + self.output_size) // 2, w_init=w_init)(inputs)
+
+        activation = getattr(nn, self.activation)
+        hiddens = activation(hiddens)
+
+        return hk.Linear(self.output_size, w_init=w_init)(hiddens)
+
+
+class LinearTransformerBlock(hk.Module):
     def __init__(
-        self,
-        input_dim,
-        output_dim,
-        hidden_layers=None,
-        dropout_rate=0.1,
-        activation="ReLU",
+        self, num_heads, key_size, embedding_size, init_scale, num_tags, name=None
     ):
-        super(MLP, self).__init__()
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-
-        activation = getattr(nn, activation)
-
-        if not hidden_layers:
-            hidden_layers = [(input_dim + output_dim) // 2] 
-            
-        layers = [nn.Linear(input_dim, hidden_layers[0]), activation()]
-        for i in range(len(hidden_layers) - 1):
-            layers.append(nn.Linear(hidden_layers[i], hidden_layers[i + 1]))
-            layers.append(activation())
-            layers.append(nn.Dropout(dropout_rate))
-        layers.append(nn.Linear(hidden_layers[-1], output_dim))
-        self.layers = nn.Sequential(*layers)
-
-    def forward(self, x):
-        return self.layers(x)
-
-
-class Backbone(nn.Module):
-    
-    def __init__(self, encoder_block, num_layers, input_dim, output_dim, num_tags):
-        super(Backbone, self).__init__()
-        self.num_layers = num_layers
-        self.input_dim = input_dim
-        self.output_dim = output_dim
-        
-        self.layers = nn.ModuleList([encoder_block(num_tags=num_tags) for _ in range(num_layers)])
-    
-    def forward(self, x, aux=None):
-        for layer in self.layers:
-            if aux is not None:
-                x = layer(x, aux)
-            else: 
-                x = layer(x)
-            
-        return self.layers(x)    
-    
-    
-class LinearTransformerBlock(nn.Module):
-    def __init__(
-        self,
-        input_dim:int,
-        num_tags: Optional[int],
-        num_heads: int,
-        d_k: int,
-        d_v: Optional[int] = None,
-        d_model: Optional[int] = None,
-        activation: str = "GELU",
-        attn_dropout: float = 0.1,
-        mlp_dropout: float = 0.1,
-        dropout_rate: float = 0.1,
-        eps: float = 1e-6,
-        label_embedded: bool = False,
-        label_embedding_dim: Optional[int] = 0,
-    ):
-        assert input_dim == d_model + label_embedding_dim, "input_dim must be equal to d_model + label_embedding_dim"
-         
-        super(LinearTransformerBlock, self).__init__()
-
-        self.input_dim = input_dim
-        self.d_model = d_model or d_k * num_heads
-        self.label_embedding_dim = label_embedding_dim
-        # TODO: Implement dropout properly
-        self.dropout_rate = dropout_rate
-        self.attn_dropout = attn_dropout
-        self.mlp_dropout = mlp_dropout
-        self.label_embedded = label_embedded
-        self.categorical_label = not label_embedded
+        super().__init__(name=name)
+        self.num_heads = num_heads
+        self.key_size = key_size
+        self.embedding_size = embedding_size
+        self.init_scale = init_scale
         self.num_tags = num_tags
-       
-        if self.categorical_label:  
-            self.label_embeddings = nn.ModuleList([
-                nn.Embedding(self.num_tags, label_embedding_dim) for _ in range(2)
-            ])
-        else:
-            self.label_embeddings = nn.ModuleList([
-                nn.Linear(self.label_embedding_dim, self.label_embedding_dim) for _ in range(2)
-            ])
-        self.layer_norms = nn.ModuleList([nn.LayerNorm(self.input_dim) for _ in range(2)])
 
-        self.attention = LinearMultiHeadAttention(
-            input_dim=input_dim,
-            num_heads=num_heads,
-            d_k=d_k,
-            d_v=d_v,
-            d_model=self.d_model,
-            eps=eps,
-        )
+    def __call__(self, edges_embedding, labels):
+        # w_init = hk.initializers.VarianceScaling(self.init_scale)
 
-        # TODO: Implement widening factor & adjust layers (maybe)
-        self.dense = MLP(
-            input_dim=self.input_dim,
-            output_dim=self.d_model,
-            hidden_layers=[(self.input_dim + self.d_model) // 2],
-            activation=activation,
-            # dropout_rate=self.mlp_dropout
-        )
+        # Attention layer
+        preattn_labels_embedding = hk.Embed(
+            self.num_tags, self.embedding_size, name="preattn_embedding"
+        )(labels)
+        hiddens = hk.LayerNorm(
+            axis=-1, create_scale=True, create_offset=True, name="preattn_layernorm"
+        )(jnp.concatenate([preattn_labels_embedding, edges_embedding], axis=-1))
+        attn = LinearMultiHeadAttention(
+            num_heads=self.num_heads,
+            key_size=self.key_size,
+            w_init_scale=self.init_scale,
+        )(hiddens, hiddens, hiddens)
 
-    def forward(self, x, labels=None):
-        # Embed labels in case labels is retained
-        labels_attn = self.label_embeddings[0](labels)
-        labels_dense = self.label_embeddings[1](labels)
+        edges_embedding = edges_embedding + attn
 
-        # Layer normalization
-        hiddens = self.layer_norms[0](torch.cat([x, labels_attn], dim=-1))
-        # Multi-head attention
-        attn = self.attention(hiddens, hiddens, hiddens)
-        # Residual connection
-        x = x + attn
-        # Layer normalization
-        hiddens = self.layer_norms[1](torch.cat([x, labels_dense], dim=-1))
-        # Project to final dimension
-        hiddens = self.dense(hiddens)
-        # Residual connection
-        hiddens = x + hiddens
+        # FFN layer
+        preffn_labels_embedding = hk.Embed(
+            self.num_tags, self.embedding_size, name="preffn_embedding"
+        )(labels)
+        hiddens = hk.LayerNorm(
+            axis=-1, create_scale=True, create_offset=True, name="preffn_layernorm"
+        )(jnp.concatenate([preffn_labels_embedding, edges_embedding], axis=-1))
+        hiddens = DenseBlock(
+            output_size=self.num_heads * self.key_size,
+            init_scale=self.init_scale,
+        )(hiddens)
+
+        hiddens = hiddens + edges_embedding
 
         return hiddens

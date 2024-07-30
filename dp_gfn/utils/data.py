@@ -5,7 +5,6 @@ import networkx as nx
 import numpy as np
 
 import conllu
-import torch
 from torch.utils.data import DataLoader, Dataset
 
 
@@ -27,8 +26,8 @@ def parse_token_tree(
     return edges
 
 
-def adjacency_matrix_from_edges_list(edges_list, num_variables: int) -> torch.Tensor:
-    G = torch.zeros(num_variables + 1, num_variables + 1, dtype=torch.int)
+def adjacency_matrix_from_edges_list(edges_list, num_variables: int):
+    G = np.zeros((num_variables + 1, num_variables + 1), dtype=int)
     for source, target, tag in edges_list:
         G[source, target] = tag
 
@@ -67,11 +66,11 @@ def collate_nx_graphs(batch):
     max_num_nodes = max(len(graph.nodes) for graph in graphs)
 
     # Create a batched adjacency matrix
-    batched_graph = torch.zeros(
-        (len(batch), max_num_nodes, max_num_nodes), dtype=torch.int
+    batched_graph = np.zeros(
+        (len(batch), max_num_nodes, max_num_nodes), dtype=np.int_
     )
-    batched_labels = torch.zeros(
-        (len(batch), max_num_nodes, max_num_nodes), dtype=torch.int
+    batched_labels = np.zeros(
+        (len(batch), max_num_nodes, max_num_nodes), dtype=np.int_
     )
 
     for i, graph in enumerate(graphs):
@@ -84,6 +83,22 @@ def collate_nx_graphs(batch):
         "labels": batched_labels,
         "text": text,
         "num_words": num_words,
+    }
+
+
+def np_collate_fn(batch):
+    graphs = [item['graph'] for item in batch]
+    text = ['[CLS] ' + item['text'] for item in batch]
+    num_words = [item['num_words'] for item in batch]   # TODO: ascertain num_words already contains ROOT
+    
+    graphs = np.array(graphs, dtype=np.int32)
+    text = text
+    num_words = np.array(num_words, dtype=np.int32)
+     
+    return {
+        "graph": graphs,
+        "text": text,
+        "num_words": num_words
     }
 
 
@@ -121,9 +136,9 @@ class BaseDataset(Dataset):
 
         word_dict = {}
         edges_list = parse_token_tree(item, tokens=word_dict)
-        edges_list = [
-            (source, target, self.rel_id[tag]) for source, target, tag in edges_list
-        ]
+        edges_list = np.array(
+            [(source, target, self.rel_id[tag]) for source, target, tag in edges_list]
+        )
         words_list = [word_dict[idx] for idx in range(1, len(word_dict) + 1)]
         joined_words = " ".join(words_list)
 
@@ -176,7 +191,8 @@ def get_dataloader(
         )
     else:
         dataloader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers
+            dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers,
+            collate_fn=np_collate_fn,
         )
 
     if get_num_tags:
