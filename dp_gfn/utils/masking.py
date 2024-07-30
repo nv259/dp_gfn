@@ -46,7 +46,7 @@ def mask_logits(logits, masks):
 
 
 def check_done(adjacency_matrices, num_words):
-    num_edges = adjacency_matrices.sum((1, 2)) - 1
+    num_edges = adjacency_matrices.sum((1, 2)) 
 
     return num_edges == num_words
 
@@ -57,7 +57,7 @@ def batch_random_choice(key, probas, masks):
     cum_probas = jnp.cumsum(probas, axis=1)
     samples = jnp.sum(cum_probas < uniform, axis=1, keepdims=True)
 
-    masks = masks.reshape(masks.shape[0], -1)
+    # masks = masks.reshape(masks.shape[0], -1)
     # is_valid = jnp.take_along_axis(masks, samples, axis=1)    # TODO: Potential risk
 
     return samples
@@ -70,7 +70,9 @@ def uniform_log_policy(masks, is_forward=True):
    
     if is_forward:  
         log_pi = mask_logits(log_pi, masks)    
-
+    else: 
+        log_pi = log_pi.squeeze(-1)
+        
     return log_pi
 
 
@@ -106,7 +108,10 @@ class StateBatch:
             "done": np.zeros(batch_size, dtype=np.bool_),
         }
         self._closure_T = np.eye(self.num_variables, dtype=np.bool_)
-        self._closure_T = self._closure_T.repeat(batch_size, 0)
+        self._closure_T = np.repeat(self._closure_T[np.newaxis, ...], batch_size, axis=0)
+
+    def __len__(self):
+        return len(self._data["labels"], )
 
     def __getitem__(self, key: str):
         return self._data[key]
@@ -127,9 +132,8 @@ class StateBatch:
         }
 
     def step(self, actions):
-        sources = actions // self.num_variables
-        targets = actions % self.num_variables
-        dones = self._data["done"]
+        sources, targets = divmod(actions, self.num_variables)
+        dones = check_done(self._data["adjacency"], self._data["num_words"])
         sources, targets = sources[~dones], targets[~dones]
         masks = self.__getitem__("mask")
         adjacencies = self.__getitem__("adjacency")
@@ -139,7 +143,7 @@ class StateBatch:
 
         # Update adjacency matrices
         adjacencies[~dones, sources, targets] = 1
-        adjacencies[dones] = 0
+        # adjacencies[dones] = 0
 
         # Update transitive closure of transpose
         source_rows = np.expand_dims(self._closure_T[~dones, sources, :], axis=1)
@@ -156,20 +160,20 @@ class StateBatch:
 
         # Update the mask
         masks = 1 - (adjacencies + self._closure_T)
-        num_parents = np.sum(adjacencies, axis=1, keepdim=True)
+        num_parents = np.sum(adjacencies, axis=1, keepdims=True)
         masks *= num_parents < 1  # each node has only one parent node
         # Exclude all undue edges
-        for batch_idx, num_word in enumerate(self._data["num_words"]):
-            masks[
-                batch_idx,
-                num_word + 1 : self.num_variables,
-                num_word + 1 : self.num_variables,
-            ] = False
+        for batch_idx, num_words in enumerate(self._data["num_words"]):
+            masks[batch_idx, num_words + 1: ] = False
+            masks[batch_idx, :, num_words + 1:] = False
+            
         masks[:, :, 0] = False
 
-        self._data["mask"] = encode(masks)
-        self._data["adjacency"] = encode(adjacencies)
-        self._data["labels"] = masks.reshape(masks.shape[0], -1) 
+        self._data["mask"] = masks
+        self._data["adjacency"] = adjacencies
+        self._data["labels"] = self._data["adjacency"].copy().reshape(
+            self.batch_size, -1
+        )
 
     def reset(
         self,
