@@ -160,20 +160,20 @@ class StateBatch:
 
         # Update the mask
         masks = 1 - (adjacencies + self._closure_T)
-        num_parents = np.sum(adjacencies, axis=1, keepdim=True)
+        num_parents = np.sum(adjacencies, axis=1, keepdims=True)
         masks *= num_parents < 1  # each node has only one parent node
         # Exclude all undue edges
-        for batch_idx, num_word in enumerate(self._data["num_words"]):
-            masks[
-                batch_idx,
-                num_word + 1 : self.num_variables,
-                num_word + 1 : self.num_variables,
-            ] = False
+        for batch_idx, num_words in enumerate(self._data["num_words"]):
+            masks[batch_idx, num_words + 1: ] = False
+            masks[batch_idx, :, num_words + 1:] = False
+            
         masks[:, :, 0] = False
 
-        self._data["mask"] = encode(masks)
-        self._data["adjacency"] = encode(adjacencies)
-        self._data["labels"] = masks.reshape(masks.shape[0], -1) 
+        self._data["mask"] = masks
+        self._data["adjacency"] = adjacencies
+        self._data["labels"] = self._data["adjacency"].copy().reshape(
+            self.batch_size, -1
+        )
 
     def reset(
         self,
