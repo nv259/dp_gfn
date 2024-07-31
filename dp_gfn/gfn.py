@@ -168,7 +168,7 @@ class DPGFN:
         traj_log_pF, traj_log_pB, complete_states = self.sample(
             gflownet_params, state_embeddings, num_words_list
         )
-        log_R = jnp.log(scores.unlabeled_graph_edit_distance(complete_states, golds))
+        log_R = jnp.log(scores.unlabeled_graph_edit_distance(complete_states['adjacency'], golds))
 
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
 
@@ -179,6 +179,7 @@ class DPGFN:
         traj_log_pB = jnp.zeros((self.batch_size,), dtype=jnp.float32)
 
         for t in range(self.num_variables):
+            print(t)
             self.key, subkey1, subkey2 = jax.random.split(self.key, 3)
 
             # Exploitation: Sample action based on GFlowNet policy
