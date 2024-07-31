@@ -218,6 +218,7 @@ class DPGFN:
 
             # Move to the next state
             states.step(actions.squeeze(-1))
+            jax.clear_caches()
 
         return traj_log_pF, traj_log_pB, states
 
