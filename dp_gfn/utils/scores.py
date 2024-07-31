@@ -6,7 +6,7 @@ def unlabeled_graph_edit_distance(predict, gold):
     predict = predict.astype(bool)
     gold = gold.astype(bool)
     
-    ged = (predict != gold).sum(-1).sum(-1)
+    ged = (predict != gold).sum(-1).sum(-1) / (2 * gold.sum(-1).sum(-1))
     
     reward = jnp.exp(1. - ged)
     
