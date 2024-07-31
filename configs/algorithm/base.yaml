@@ -2,7 +2,7 @@ train:
     n_grad_accumulation_steps: 4    # not yet implemented
     max_steps: 100000
     eval_on_train: False
-    exploration_rate: 0.1
+    exploration_rate: 0.5
     stimulated_annealing: False     # not yet implemented
     clip_grad: 10   # not yet implemented
 
