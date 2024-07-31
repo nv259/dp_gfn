@@ -27,7 +27,7 @@ def parse_token_tree(
 
 
 def adjacency_matrix_from_edges_list(edges_list, num_variables: int):
-    G = np.zeros((num_variables + 1, num_variables + 1), dtype=int)
+    G = np.zeros((num_variables, num_variables), dtype=int)
     for source, target, tag in edges_list:
         G[source, target] = tag
 
