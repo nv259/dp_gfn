@@ -1,14 +1,14 @@
-import os
 import logging
+import os
 import random
 import warnings
 
 import hydra
-from omegaconf import DictConfig, OmegaConf, open_dict
+from omegaconf import DictConfig, OmegaConf
 
 from dp_gfn.gfn import DPGFN
-from dp_gfn.utils.misc import flatten_config
 from dp_gfn.utils.data import get_dataloader
+from dp_gfn.utils.misc import flatten_config
 
 
 @hydra.main(config_path="./configs", config_name="main")
