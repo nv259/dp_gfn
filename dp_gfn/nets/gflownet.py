@@ -4,6 +4,7 @@ from dp_gfn.nets.encoders import (
     DenseBlock,
     LinearTransformerBlock,
 )
+from dp_gfn.nets.initial_encoders import Biaffine
 
 import haiku as hk
 import jax.numpy as jnp
@@ -30,7 +31,7 @@ class DPGFlowNet(hk.Module):
         super().__init__()
 
         self.num_variables = num_variables
-        self.num_tags = num_tags + 2  # including edge-from-ROOT & no-edge
+        self.num_tags = num_tags + 1  # including no-edge type
         self.node_embdding_dim = node_embedding_dim
 
         self.num_layers = num_layers
@@ -40,19 +41,25 @@ class DPGFlowNet(hk.Module):
 
         self.init_scale = 2.0 / self.num_layers
 
-    def __call__(self, edges_embedding, labels, masks):
-        for i in range(self.num_layers):
-            edges_embedding = LinearTransformerBlock(
+    def __call__(self, x, node_id, labels, masks):
+        for _ in range(self.num_layers):
+            x = LinearTransformerBlock(
                 num_heads=self.num_heads,
                 key_size=self.key_size,
                 embedding_size=self.node_embdding_dim,
                 init_scale=self.init_scale,
                 num_tags=self.num_tags,
-            )(edges_embedding, labels)
+            )(x, labels)
 
-        logits = DenseBlock(1, init_scale=self.init_scale)(edges_embedding)
+        deps = jnp.repeat(x[jnp.newaxis, node_id], x.shape[-2], axis=-2)
+        x = jnp.reshape(x, (-1, x.shape[-1]))
+        deps = jnp.reshape(deps, (-1, deps.shape[-1]))
+        assert x.shape == deps.shape
+        logits = jax.vmap(Biaffine(num_tags=1), in_axes=(0, 0))(x, deps)
+          
+        # logits = DenseBlock(1, init_scale=self.init_scale)(x)
         logits = logits.squeeze(-1)
-        log_pi = log_policy(logits, masks)
+        log_pi = log_policy(logits, masks)  # TODO: edit mask
         
         return log_pi
 
@@ -60,6 +67,9 @@ class DPGFlowNet(hk.Module):
         return DenseBlock(
             output_size=self.model_size, init_scale=self.init_scale, name="Z_flow"
         )(pref).mean(-1)
+        
+    def node_predictor(self, ):
+        pass
 
 
 def log_policy(logits, masks):
