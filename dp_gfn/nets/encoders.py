@@ -1,24 +1,4 @@
-"""
-Copyright (c) 2022 Tristan Deleu
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-"""
+## the base code is from https://github.com/tristandeleu/jax-dag-gflownet
 
 import haiku as hk
 import jax.nn as nn
@@ -61,36 +41,40 @@ class LinearTransformerBlock(hk.Module):
         self.init_scale = init_scale
         self.num_tags = num_tags
 
-    def __call__(self, edges_embedding, labels):
+    def __call__(self, x, labels):
         # w_init = hk.initializers.VarianceScaling(self.init_scale)
 
+        arc_keys = hk.Embed(self.num_tags, self.key_size, name="relation2keys")(labels)
+        arc_values = hk.Embed(self.num_tags, self.key_size, name="relation2values")(labels)
         # Attention layer
-        preattn_labels_embedding = hk.Embed(
-            self.num_tags, self.embedding_size, name="preattn_embedding"
-        )(labels)
-        hiddens = hk.LayerNorm(
-            axis=-1, create_scale=True, create_offset=True, name="preattn_layernorm"
-        )(jnp.concatenate([preattn_labels_embedding, edges_embedding], axis=-1))
+        # preattn_labels_embedding = hk.Embed(
+        #     self.num_tags, self.embedding_size, name="preattn_embedding"
+        # )(labels)
+        # hiddens = hk.LayerNorm(
+        #     axis=-1, create_scale=True, create_offset=True, name="preattn_layernorm"
+        # )(jnp.concatenate([preattn_labels_embedding, edges_embedding], axis=-1))
+        hiddens = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(x)
         attn = LinearMultiHeadAttention(
             num_heads=self.num_heads,
             key_size=self.key_size,
             w_init_scale=self.init_scale,
-        )(hiddens, hiddens, hiddens)
+        )(hiddens, hiddens, hiddens, arc_keys, arc_values)
 
-        edges_embedding = edges_embedding + attn
+        x = x + attn
 
         # FFN layer
-        preffn_labels_embedding = hk.Embed(
-            self.num_tags, self.embedding_size, name="preffn_embedding"
-        )(labels)
-        hiddens = hk.LayerNorm(
-            axis=-1, create_scale=True, create_offset=True, name="preffn_layernorm"
-        )(jnp.concatenate([preffn_labels_embedding, edges_embedding], axis=-1))
+        # preffn_labels_embedding = hk.Embed(
+        #     self.num_tags, self.embedding_size, name="preffn_embedding"
+        # )(labels)
+        # hiddens = hk.LayerNorm(
+        #     axis=-1, create_scale=True, create_offset=True, name="preffn_layernorm"
+        # )(jnp.concatenate([preffn_labels_embedding, edges_embedding], axis=-1))
+        hiddens = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(hiddens)
         hiddens = DenseBlock(
             output_size=self.num_heads * self.key_size,
             init_scale=self.init_scale,
         )(hiddens)
 
-        hiddens = hiddens + edges_embedding
+        hiddens = hiddens + x
 
         return hiddens

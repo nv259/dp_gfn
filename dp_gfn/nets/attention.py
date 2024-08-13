@@ -6,7 +6,7 @@ import jax.nn as nn
 
 
 class LinearMultiHeadAttention(hk.MultiHeadAttention):
-    def __call__(self, query, key, value, arc, mask=None):
+    def __call__(self, query, key, value, arc_keys, arc_values, mask=None):
         feature_map = lambda x: nn.elu(x) + 1.0
         eps = 1e-6
 
@@ -14,8 +14,6 @@ class LinearMultiHeadAttention(hk.MultiHeadAttention):
         key_heads = self._linear_projection(key, self.key_size, "key")
         value_heads = self._linear_projection(value, self.value_size, "value")
 
-        arc_keys = hk.Embed(self.num_tags, self.key_size, name="relation2keys")(arc)
-        arc_values = hk.Embed(self.num_tags, self.key_size, name="relation2values")(arc)
         key_heads = key_heads + arc_keys
         value_heads = value_heads + arc_values
         
