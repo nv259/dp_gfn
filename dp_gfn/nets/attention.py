@@ -13,7 +13,8 @@ class LinearMultiHeadAttention(hk.MultiHeadAttention):
         query_heads = self._linear_projection(query, self.key_size, "query")
         key_heads = self._linear_projection(key, self.key_size, "key")
         value_heads = self._linear_projection(value, self.value_size, "value")
-
+        arc_keys = arc_keys.reshape(key_heads.shape)
+        arc_values= arc_values.reshape(value_heads.shape)
         key_heads = key_heads + arc_keys
         value_heads = value_heads + arc_values
         
