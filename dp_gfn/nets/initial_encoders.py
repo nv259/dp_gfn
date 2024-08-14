@@ -69,14 +69,15 @@ class PrefEncoder(hk.Module):
 
 
 class Biaffine(hk.Module):
-    def __init__(self, num_tags, intermediate_dim=128):
+    def __init__(self, num_tags, init_scale=None, intermediate_dim=128):
         super().__init__()
 
         self.num_tags = num_tags
+        self.init_scale = init_scale
         self.intermediate_dim = intermediate_dim
 
     def __call__(self, head, dep):
-        w_init = hk.initializers.RandomNormal()
+        w_init = hk.initializers.RandomNormal() if self.init_scale is None else hk.initializers.VarianceScaling(self.init_scale)
 
         W = hk.get_parameter(
             name="W",
