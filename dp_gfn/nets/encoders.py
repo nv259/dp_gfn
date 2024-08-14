@@ -32,20 +32,20 @@ class DenseBlock(hk.Module):
 
 class LinearTransformerBlock(hk.Module):
     def __init__(
-        self, num_heads, key_size, embedding_size, init_scale, num_tags, name=None
+        self, num_heads, key_size, model_size, init_scale, num_tags, name=None
     ):
         super().__init__(name=name)
         self.num_heads = num_heads
         self.key_size = key_size
-        self.embedding_size = embedding_size
+        self.model_size = self.num_heads * self.key_size
         self.init_scale = init_scale
         self.num_tags = num_tags
 
     def __call__(self, x, labels):
         # w_init = hk.initializers.VarianceScaling(self.init_scale)
 
-        arc_keys = hk.Embed(self.num_tags, self.key_size, name="relation2keys")(labels)
-        arc_values = hk.Embed(self.num_tags, self.key_size, name="relation2values")(labels)
+        arc_keys = hk.Embed(self.num_tags, self.model_size, name="relation2keys")(labels)
+        arc_values = hk.Embed(self.num_tags, self.model_size, name="relation2values")(labels)
         # Attention layer
         # preattn_labels_embedding = hk.Embed(
         #     self.num_tags, self.embedding_size, name="preattn_embedding"
