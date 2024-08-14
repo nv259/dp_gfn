@@ -42,6 +42,17 @@ class DPGFlowNet(hk.Module):
         self.init_scale = 2.0 / self.num_layers
 
     def __call__(self, x, node_id, labels, masks):
+        log_pi, node_embeddings = self.edge_policy(x, node_id, labels, masks, output_nodes=True)
+        next_node_logits = self.next_node(node_embeddings.mean(axis=-2), node_embeddings)   # TODO: Should we use only visitted nodes to predict next node to visit?
+        
+        return log_pi, next_node_logits
+
+    def Z(self, pref):
+        return DenseBlock(
+            output_size=self.model_size, init_scale=self.init_scale, name="Z_flow"
+        )(pref).mean(-1)
+    
+    def edge_policy(self, x, node_id, labels, masks, output_nodes=False):
         for _ in range(self.num_layers):
             x = LinearTransformerBlock(
                 num_heads=self.num_heads,
@@ -52,8 +63,6 @@ class DPGFlowNet(hk.Module):
             )(x, labels)
 
         deps = jnp.repeat(x[jnp.newaxis, node_id], x.shape[-2], axis=-2)
-        x = jnp.reshape(x, (-1, x.shape[-1]))
-        deps = jnp.reshape(deps, (-1, deps.shape[-1]))
         assert x.shape == deps.shape
         logits = jax.vmap(Biaffine(num_tags=1), in_axes=(0, 0))(x, deps)
           
@@ -61,15 +70,21 @@ class DPGFlowNet(hk.Module):
         logits = logits.squeeze(-1)
         log_pi = log_policy(logits, masks)  # TODO: edit mask
         
-        return log_pi
-
-    def Z(self, pref):
-        return DenseBlock(
-            output_size=self.model_size, init_scale=self.init_scale, name="Z_flow"
-        )(pref).mean(-1)
+        if output_nodes is True:
+            graph_emb = x
+        else:
+            graph_emb = x.mean(axis=-2) # TODO: Inspect other ways to create graph embeddings from nodes' embeddings
+             
+        return log_pi, graph_emb
+    
+    def next_node(self, graph_emb, node_embeddings, masks):
+        graph_embs = jnp.repeat(graph_emb, node_embeddings.shape[-2], axis=-2)
+        hidden = jnp.concatenate([graph_embs, node_embeddings], axis=-1)
         
-    def node_predictor(self, ):
-        pass
+        logits = DenseBlock(1, init_scale=self.init_scale)(hidden)
+        logits = (logits, masks)
+                
+        return logits
 
 
 def log_policy(logits, masks):
