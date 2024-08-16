@@ -134,19 +134,17 @@ class StateBatch:
             "adjacency": adjacency,
         }
 
-    def step(self, actions, t):
+    def step(self, node_ids, prev_node_ids, actions=None):
         masks = self.__getitem__("masks")
         num_words = self.__getitem__('num_words')
         dones = check_done(masks, num_words)
         
-        # Only pick the desired node at step 0 
-        if t == 0:
-            masks[1][:, actions] = False
-            return 0
-         
-        masks[0] = np.logical_not(masks[1].copy())
-        masks[0][:, 0] = False
-        masks[1][:, actions] = False
+        masks[1][:, node_ids] = False 
+        
+        if actions is not None:
+            masks[0][:, prev_node_ids] = True 
+            masks[0][:, 0] = False  # Ensure no outcoming edge from ROOT
+            self._data['adjacency'][actions, prev_node_ids] = 1 
         
         return 1
     
