@@ -125,48 +125,22 @@ class StateBatch:
             "num_words": num_words,
         }
 
-    def step(self, actions):
+    def step(self, actions, t):
         masks = self.__getitem__("masks")
         num_words = self.__getitem__('num_words')
         dones = check_done(masks, num_words)
-
-        if not np.all(masks[~dones, sources, targets]):
-            raise ValueError("Invalid action")
-
-        # Update adjacency matrices
-        adjacencies[~dones, sources, targets] = 1
-        # adjacencies[dones] = 0
-
-        # Update transitive closure of transpose
-        source_rows = np.expand_dims(self._closure_T[~dones, sources, :], axis=1)
-        target_cols = np.expand_dims(self._closure_T[~dones, :, targets], axis=2)
-        self._closure_T[~dones] |= np.logical_and(
-            source_rows, target_cols
-        )  # Outer product
-        self._closure_T[dones] = np.eye(self.num_variables, dtype=np.bool_)
-
-        # Update dones
-        self._data["done"][~dones] = check_done(
-            adjacencies[~dones], self._data["num_words"][~dones]
-        )
-
-        # Update the mask
-        masks = 1 - (adjacencies + self._closure_T)
-        num_parents = np.sum(adjacencies, axis=1, keepdims=True)
-        masks *= num_parents < 1  # each node has only one parent node
-        # Exclude all undue edges
-        for batch_idx, num_words in enumerate(self._data["num_words"]):
-            masks[batch_idx, num_words + 1: ] = False
-            masks[batch_idx, :, num_words + 1:] = False
-            
-        masks[:, :, 0] = False
-
-        self._data["mask"] = masks
-        self._data["adjacency"] = adjacencies
-        self._data["labels"] = self._data["adjacency"].copy().reshape(
-            self.batch_size, -1
-        )
-
+        
+        # Only pick the desired node at step 0 
+        if t == 0:
+            masks[1][:, actions] = False
+            return 0
+         
+        masks[0] = np.logical_not(masks[1].copy())
+        masks[0][:, 0] = False
+        masks[1] = masks[1][:, actions] = False
+        
+        return 1
+    
     def reset(
         self,
     ):
