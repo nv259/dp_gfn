@@ -21,6 +21,7 @@ def decode(encoded, num_variables):
 def batched_base_masks(
     batch_size: int,
     num_variables: int,
+    num_words_list: list[int],
 ):
     # Mask for sampling edge with shape [len(num_words), num_variables]
     # 1. mask[visitted nodes] == True
@@ -32,18 +33,22 @@ def batched_base_masks(
     # Mask for sampling next node (reverse of the previous edge mask)
     node_mask = np.ones((batch_size, num_variables), dtype=np.bool_)
     node_mask[:, 0] = False
+    for idx, num_words in enumerate(num_words_list):
+        node_mask[idx, num_words + 1: ] = False
     
     return edge_mask, node_mask
 
 
 def base_masks(
-    num_variables: int
+    num_variables: int,
+    num_words: int,
 ):
     edge_mask = np.zeros(num_variables, dtype=np.bool_)
     edge_mask[0] = True
     
     node_mask = np.ones(num_variables, dtype=np.bool_)
     node_mask[0] = False 
+    node_mask[num_words + 1: ] = False
     
     return edge_mask, node_mask
     
@@ -68,7 +73,7 @@ def batch_random_choice(key, probas, masks):
     return samples
 
 
-def uniform_log_policy(masks, is_forward=True):
+def uniform_log_policy(edge_masks, is_forward=True):
     masks = masks.reshape(masks.shape[0], -1)
     num_valid_actions = jnp.sum(masks, axis=-1, keepdims=True)
     log_pi = -jnp.log(num_valid_actions)
@@ -86,7 +91,7 @@ class StateBatch:
         self,
         batch_size,
         num_variables,
-        num_words,
+        num_words_list,
     ):
         self.batch_size = batch_size
         self.num_variables = num_variables 
@@ -104,8 +109,10 @@ class StateBatch:
             "masks": batched_base_masks(    # (edge_mask, node_mask)
                     batch_size=self.batch_size,
                     num_variables=self.num_variables,
+                    num_words_list=num_words_list,
             ),
-            "num_words": num_words,
+            "num_words": num_words_list,
+            "adjacency": np.zeros((self.batch_size, self.num_variables, self.num_variables), dtype=np.int32)
         }
 
     def __len__(self):
@@ -118,11 +125,13 @@ class StateBatch:
         labels = self._data["labels"][index]
         masks = self._data["masks"][index]
         num_words = self._data["num_words"][index]
+        adjacency = self._data["adjacency"][index]
 
         return {
             "labels": labels,
             "masks": masks,
             "num_words": num_words,
+            "adjacency": adjacency,
         }
 
     def step(self, actions, t):
@@ -137,7 +146,7 @@ class StateBatch:
          
         masks[0] = np.logical_not(masks[1].copy())
         masks[0][:, 0] = False
-        masks[1] = masks[1][:, actions] = False
+        masks[1][:, actions] = False
         
         return 1
     
