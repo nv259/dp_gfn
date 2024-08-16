@@ -18,28 +18,35 @@ def decode(encoded, num_variables):
     return decoded
 
 
-def batched_base_mask(
-    num_words: list[int],
+def batched_base_masks(
+    batch_size: int,
     num_variables: int,
 ):
-    mask = np.zeros((num_variables, num_variables), dtype=bool)
-    mask = np.repeat(mask[np.newaxis, ...], len(num_words), axis=0)
+    # Mask for sampling edge with shape [len(num_words), num_variables]
+    # 1. mask[visitted nodes] == True
+    # 2. mask[un-visitted nodes] == False
+    # To this end, only first elements, i.e. the `ROOT`, of the initial masks are set to True
+    edge_mask = np.zeros((batch_size, num_variables), dtype=np.bool_)
+    edge_mask[:, 0] = True
+   
+    # Mask for sampling next node (reverse of the previous edge mask)
+    node_mask = np.ones((batch_size, num_variables), dtype=np.bool_)
+    node_mask[:, 0] = False
+    
+    return edge_mask, node_mask
 
-    for batch_idx, num_word in enumerate(num_words):
-        num_word = int(num_word)
-        mask[batch_idx, 0, 1 : num_word + 1] = True
 
-    return mask
-
-
-def base_mask(
-    num_words: int, num_variables: int
+def base_masks(
+    num_variables: int
 ):
-    mask = np.zeros((num_variables, num_variables), dtype=np.bool_)
-    mask[0, 1 : num_words + 1] = True
-
-    return mask
-
+    edge_mask = np.zeros(num_variables, dtype=np.bool_)
+    edge_mask[0] = True
+    
+    node_mask = np.ones(num_variables, dtype=np.bool_)
+    node_mask[0] = False 
+    
+    return edge_mask, node_mask
+    
 
 def mask_logits(logits, masks):
     return masks * logits + (1 - masks) * MASKED_VALUE
@@ -89,15 +96,15 @@ class StateBatch:
         labels = np.zeros(
             (
                 batch_size, 
-                num_variables**2 
+                num_variables
             ),
             dtype=np.int_,
         )
 
         self._data = {
             "labels": labels,
-            "mask": batched_base_mask(
-                    num_words=num_words,
+            "masks": batched_base_masks(
+                    bathc_size=self.batch_size,
                     num_variables=self.num_variables,
             ),
             "adjacency": 
@@ -105,10 +112,7 @@ class StateBatch:
                     (self.batch_size, self.num_variables, self.num_variables), dtype=np.int_
             ),
             "num_words": num_words,
-            "done": np.zeros(batch_size, dtype=np.bool_),
         }
-        self._closure_T = np.eye(self.num_variables, dtype=np.bool_)
-        self._closure_T = np.repeat(self._closure_T[np.newaxis, ...], batch_size, axis=0)
 
     def __len__(self):
         return len(self._data["labels"], )
