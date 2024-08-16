@@ -52,10 +52,8 @@ def mask_logits(logits, masks):
     return masks * logits + (1 - masks) * MASKED_VALUE
 
 
-def check_done(adjacency_matrices, num_words):
-    num_edges = adjacency_matrices.sum((1, 2)) 
-
-    return num_edges == num_words
+def check_done(masks, num_words):
+    return masks[0].sum(axis=1) == num_words
 
 
 def batch_random_choice(key, probas, masks):
@@ -103,13 +101,9 @@ class StateBatch:
 
         self._data = {
             "labels": labels,
-            "masks": batched_base_masks(
-                    bathc_size=self.batch_size,
+            "masks": batched_base_masks(    # (edge_mask, node_mask)
+                    batch_size=self.batch_size,
                     num_variables=self.num_variables,
-            ),
-            "adjacency": 
-                np.zeros(
-                    (self.batch_size, self.num_variables, self.num_variables), dtype=np.int_
             ),
             "num_words": num_words,
         }
@@ -122,25 +116,19 @@ class StateBatch:
 
     def get_full_data(self, index: int):
         labels = self._data["labels"][index]
-        mask = self._data["mask"][index]
-        adjacency = self._data["adjacency"][index]
+        masks = self._data["masks"][index]
         num_words = self._data["num_words"][index]
-        done = self._data["done"][index]
 
         return {
             "labels": labels,
-            "mask": mask,
-            "adjacency": adjacency,
+            "masks": masks,
             "num_words": num_words,
-            "done": done,
         }
 
     def step(self, actions):
-        sources, targets = divmod(actions, self.num_variables)
-        dones = check_done(self._data["adjacency"], self._data["num_words"])
-        sources, targets = sources[~dones], targets[~dones]
-        masks = self.__getitem__("mask")
-        adjacencies = self.__getitem__("adjacency")
+        masks = self.__getitem__("masks")
+        num_words = self.__getitem__('num_words')
+        dones = check_done(masks, num_words)
 
         if not np.all(masks[~dones, sources, targets]):
             raise ValueError("Invalid action")
