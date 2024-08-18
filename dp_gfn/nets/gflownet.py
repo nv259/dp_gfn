@@ -37,8 +37,8 @@ class DPGFlowNet(hk.Module):
         self.init_scale = 2.0 / self.num_layers
 
     def __call__(self, x, node_id, labels, masks):
-        log_pi, node_embeddings = self.edge_policy(x, node_id, labels, masks, output_nodes=True)
-        next_node_logits = self.next_node(node_embeddings.mean(axis=-2), node_embeddings, ~masks)   # TODO: Should we use only visitted nodes to predict next node to visit?
+        log_pi, node_embeddings = self.edge_policy(x, node_id, labels, masks[0], output_nodes=True)
+        next_node_logits = self.next_node(node_embeddings.mean(axis=-2), node_embeddings, masks[1])   # TODO: Should we use only visitted nodes to predict next node to visit?
         
         return log_pi, next_node_logits
 
@@ -59,10 +59,10 @@ class DPGFlowNet(hk.Module):
 
         deps = jnp.repeat(x[jnp.newaxis, node_id], x.shape[-2], axis=-2)
         assert x.shape == deps.shape
+        # TODO: What if we use edge policy at step 0?
         logits = jax.vmap(Biaffine(num_tags=1, init_scale=self.init_scale), in_axes=(0, 0))(x, deps)
-        # logits = DenseBlock(1, init_scale=self.init_scale)(x)
         logits = logits.squeeze(-1)
-        log_pi = log_policy(logits, masks)  # TODO: edit mask
+        log_pi = log_policy(logits, masks) 
         
         if output_nodes is True:
             graph_emb = x
@@ -72,7 +72,6 @@ class DPGFlowNet(hk.Module):
         return log_pi, graph_emb
     
     def next_node(self, graph_emb, node_embeddings, masks):
-        masks = masks.at[0].set(False)
         graph_embs = jnp.repeat(graph_emb[jnp.newaxis, :], node_embeddings.shape[0], axis=0)
         hidden = jnp.concatenate([graph_embs, node_embeddings], axis=-1)
          
