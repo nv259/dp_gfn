@@ -53,14 +53,14 @@ class LinearTransformerBlock(hk.Module):
         # hiddens = hk.LayerNorm(
         #     axis=-1, create_scale=True, create_offset=True, name="preattn_layernorm"
         # )(jnp.concatenate([preattn_labels_embedding, edges_embedding], axis=-1))
-        hiddens = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(x)
         attn = LinearMultiHeadAttention(
             num_heads=self.num_heads,
             key_size=self.key_size,
             w_init_scale=self.init_scale,
-        )(hiddens, hiddens, hiddens, arc_keys, arc_values)
+        )(x, x, x, arc_keys, arc_values)
 
-        x = x + attn
+        hiddens = x + attn
+        hiddens = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(hiddens)
 
         # FFN layer
         # preffn_labels_embedding = hk.Embed(
@@ -69,12 +69,12 @@ class LinearTransformerBlock(hk.Module):
         # hiddens = hk.LayerNorm(
         #     axis=-1, create_scale=True, create_offset=True, name="preffn_layernorm"
         # )(jnp.concatenate([preffn_labels_embedding, edges_embedding], axis=-1))
-        hiddens = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(hiddens)
-        hiddens = DenseBlock(
-            output_size=self.num_heads * self.key_size,
+        mlp_output = DenseBlock(
+            output_size=self.model_size,
             init_scale=self.init_scale,
         )(hiddens)
 
-        hiddens = hiddens + x
+        output = mlp_output + hiddens
+        output = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(output)
 
         return hiddens
