@@ -36,7 +36,7 @@ def batched_base_masks(
     for idx, num_words in enumerate(num_words_list):
         node_mask[idx, num_words + 1: ] = False
     
-    return edge_mask, node_mask
+    return [edge_mask, node_mask]
 
 
 def base_masks(
@@ -50,7 +50,7 @@ def base_masks(
     node_mask[0] = False 
     node_mask[num_words + 1: ] = False
     
-    return edge_mask, node_mask
+    return [edge_mask, node_mask]
     
 
 def mask_logits(logits, masks):
@@ -73,7 +73,7 @@ def batch_random_choice(key, probas, masks):
     return samples
 
 
-def uniform_log_policy(edge_masks, is_forward=True):
+def uniform_log_policy(masks, is_forward=True):
     masks = masks.reshape(masks.shape[0], -1)
     num_valid_actions = jnp.sum(masks, axis=-1, keepdims=True)
     log_pi = -jnp.log(num_valid_actions)
@@ -96,16 +96,8 @@ class StateBatch:
         self.batch_size = batch_size
         self.num_variables = num_variables 
         
-        labels = np.zeros(
-            (
-                batch_size, 
-                num_variables
-            ),
-            dtype=np.int_,
-        )
-
         self._data = {
-            "labels": labels,
+            "labels": np.zeros((self.batch_size, self.num_variables), dtype=np.int32),
             "masks": batched_base_masks(    # (edge_mask, node_mask)
                     batch_size=self.batch_size,
                     num_variables=self.num_variables,
@@ -138,13 +130,19 @@ class StateBatch:
         masks = self.__getitem__("masks")
         num_words = self.__getitem__('num_words')
         dones = check_done(masks, num_words)
+        batch_ids = np.arange(self.batch_size)
+
+        masks[1][batch_ids, node_ids] = False 
+        self._data['masks'][1] = masks[1]
         
-        masks[1][:, node_ids] = False 
+        if actions is None:
+            return 0 
         
-        if actions is not None:
-            masks[0][:, prev_node_ids] = True 
-            masks[0][:, 0] = False  # Ensure no outcoming edge from ROOT
-            self._data['adjacency'][actions, prev_node_ids] = 1 
+        masks[0][batch_ids, prev_node_ids] = True 
+        masks[0][batch_ids, 0] = False  # Ensure no outcoming edge from ROOT
+        self._data['masks'][0] = masks[0]
+        self._data['adjacency'][batch_ids[~dones], actions[~dones], prev_node_ids[~dones]] = 1 
+        self._data['labels'][batch_ids, node_ids] = 1
         
         return 1
     
