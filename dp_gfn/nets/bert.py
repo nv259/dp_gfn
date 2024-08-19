@@ -5,6 +5,7 @@ import haiku as hk
 from transformers import AutoModel, AutoConfig
 from dp_gfn.utils.pretrains import split_into_heads
 from hydra import initialize, compose
+from dp_gfn.nets.encoders import DenseBlock
 
 
 class PretrainedWeights(object):
@@ -391,11 +392,13 @@ class BertModel(hk.Module):
 
 
 def get_bert_token_embeddings_fn(
-    input_ids, token_type_ids, attention_mask, training=False
+    model_size, input_ids, token_type_ids, attention_mask, training=False
 ):
     token_embeddings = BertModel(CONFIG)(
         input_ids, token_type_ids, attention_mask, training=training
     )
+    
+    token_embeddings = DenseBlock(output_size=model_size)(token_embeddings)
 
     return token_embeddings
 

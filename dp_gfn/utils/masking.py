@@ -18,37 +18,47 @@ def decode(encoded, num_variables):
     return decoded
 
 
-def batched_base_mask(
-    num_words: list[int],
+def batched_base_masks(
+    batch_size: int,
     num_variables: int,
+    num_words_list: list[int],
 ):
-    mask = np.zeros((num_variables, num_variables), dtype=bool)
-    mask = np.repeat(mask[np.newaxis, ...], len(num_words), axis=0)
+    # Mask for sampling edge with shape [len(num_words), num_variables]
+    # 1. mask[visitted nodes] == True
+    # 2. mask[un-visitted nodes] == False
+    # To this end, only first elements, i.e. the `ROOT`, of the initial masks are set to True
+    edge_mask = np.zeros((batch_size, num_variables), dtype=np.bool_)
+    edge_mask[:, 0] = True
+   
+    # Mask for sampling next node (reverse of the previous edge mask)
+    node_mask = np.ones((batch_size, num_variables), dtype=np.bool_)
+    node_mask[:, 0] = False
+    for idx, num_words in enumerate(num_words_list):
+        node_mask[idx, num_words + 1: ] = False
+    
+    return [edge_mask, node_mask]
 
-    for batch_idx, num_word in enumerate(num_words):
-        num_word = int(num_word)
-        mask[batch_idx, 0, 1 : num_word + 1] = True
 
-    return mask
-
-
-def base_mask(
-    num_words: int, num_variables: int
+def base_masks(
+    num_variables: int,
+    num_words: int,
 ):
-    mask = np.zeros((num_variables, num_variables), dtype=np.bool_)
-    mask[0, 1 : num_words + 1] = True
-
-    return mask
-
+    edge_mask = np.zeros(num_variables, dtype=np.bool_)
+    edge_mask[0] = True
+    
+    node_mask = np.ones(num_variables, dtype=np.bool_)
+    node_mask[0] = False 
+    node_mask[num_words + 1: ] = False
+    
+    return [edge_mask, node_mask]
+    
 
 def mask_logits(logits, masks):
     return masks * logits + (1 - masks) * MASKED_VALUE
 
 
-def check_done(adjacency_matrices, num_words):
-    num_edges = adjacency_matrices.sum((1, 2)) 
-
-    return num_edges == num_words
+def check_done(masks, num_words):
+    return masks[0].sum(axis=1) == num_words
 
 
 def batch_random_choice(key, probas, masks):
@@ -81,34 +91,21 @@ class StateBatch:
         self,
         batch_size,
         num_variables,
-        num_words,
+        num_words_list,
     ):
         self.batch_size = batch_size
         self.num_variables = num_variables 
         
-        labels = np.zeros(
-            (
-                batch_size, 
-                num_variables**2 
-            ),
-            dtype=np.int_,
-        )
-
         self._data = {
-            "labels": labels,
-            "mask": batched_base_mask(
-                    num_words=num_words,
+            "labels": np.zeros((self.batch_size, self.num_variables), dtype=np.int32),
+            "masks": batched_base_masks(    # (edge_mask, node_mask)
+                    batch_size=self.batch_size,
                     num_variables=self.num_variables,
+                    num_words_list=num_words_list,
             ),
-            "adjacency": 
-                np.zeros(
-                    (self.batch_size, self.num_variables, self.num_variables), dtype=np.int_
-            ),
-            "num_words": num_words,
-            "done": np.zeros(batch_size, dtype=np.bool_),
+            "num_words": num_words_list,
+            "adjacency": np.zeros((self.batch_size, self.num_variables, self.num_variables), dtype=np.int32)
         }
-        self._closure_T = np.eye(self.num_variables, dtype=np.bool_)
-        self._closure_T = np.repeat(self._closure_T[np.newaxis, ...], batch_size, axis=0)
 
     def __len__(self):
         return len(self._data["labels"], )
@@ -118,63 +115,38 @@ class StateBatch:
 
     def get_full_data(self, index: int):
         labels = self._data["labels"][index]
-        mask = self._data["mask"][index]
-        adjacency = self._data["adjacency"][index]
+        masks = self._data["masks"][index]
         num_words = self._data["num_words"][index]
-        done = self._data["done"][index]
+        adjacency = self._data["adjacency"][index]
 
         return {
             "labels": labels,
-            "mask": mask,
-            "adjacency": adjacency,
+            "masks": masks,
             "num_words": num_words,
-            "done": done,
+            "adjacency": adjacency,
         }
 
-    def step(self, actions):
-        sources, targets = divmod(actions, self.num_variables)
-        dones = check_done(self._data["adjacency"], self._data["num_words"])
-        sources, targets = sources[~dones], targets[~dones]
-        masks = self.__getitem__("mask")
-        adjacencies = self.__getitem__("adjacency")
+    def step(self, node_ids, prev_node_ids, actions=None):
+        masks = self.__getitem__("masks")
+        num_words = self.__getitem__('num_words')
+        dones = check_done(masks, num_words)
+        batch_ids = np.arange(self.batch_size)
 
-        if not np.all(masks[~dones, sources, targets]):
-            raise ValueError("Invalid action")
-
-        # Update adjacency matrices
-        adjacencies[~dones, sources, targets] = 1
-        # adjacencies[dones] = 0
-
-        # Update transitive closure of transpose
-        source_rows = np.expand_dims(self._closure_T[~dones, sources, :], axis=1)
-        target_cols = np.expand_dims(self._closure_T[~dones, :, targets], axis=2)
-        self._closure_T[~dones] |= np.logical_and(
-            source_rows, target_cols
-        )  # Outer product
-        self._closure_T[dones] = np.eye(self.num_variables, dtype=np.bool_)
-
-        # Update dones
-        self._data["done"][~dones] = check_done(
-            adjacencies[~dones], self._data["num_words"][~dones]
-        )
-
-        # Update the mask
-        masks = 1 - (adjacencies + self._closure_T)
-        num_parents = np.sum(adjacencies, axis=1, keepdims=True)
-        masks *= num_parents < 1  # each node has only one parent node
-        # Exclude all undue edges
-        for batch_idx, num_words in enumerate(self._data["num_words"]):
-            masks[batch_idx, num_words + 1: ] = False
-            masks[batch_idx, :, num_words + 1:] = False
-            
-        masks[:, :, 0] = False
-
-        self._data["mask"] = masks
-        self._data["adjacency"] = adjacencies
-        self._data["labels"] = self._data["adjacency"].copy().reshape(
-            self.batch_size, -1
-        )
-
+        masks[1][batch_ids, node_ids] = False 
+        self._data['masks'][1] = masks[1]
+        
+        if actions is None:
+            return 0 
+        
+        masks[0][batch_ids, prev_node_ids] = True 
+        masks[0][batch_ids, 0] = False  # Ensure no outcoming edge from ROOT
+        self._data['masks'][0] = masks[0]
+        actions = actions.squeeze(-1)
+        self._data['adjacency'][batch_ids[~dones], actions[~dones], prev_node_ids[~dones]] = 1 
+        self._data['labels'][batch_ids, prev_node_ids] = 1
+        
+        return 1
+    
     def reset(
         self,
     ):

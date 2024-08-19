@@ -1,7 +1,6 @@
 conllu==4.5.3
 hydra-core==1.3.2
 networkx==3.2.1
-torch==2.3.0
 transformers==4.40.2
 jax
 dm-haiku
