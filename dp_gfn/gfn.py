@@ -2,6 +2,7 @@ import os
 from collections import namedtuple
 
 import haiku as hk
+import numpy as np
 import jax
 import jax.numpy as jnp
 import optax
@@ -11,15 +12,15 @@ from tqdm import trange
 from transformers import AutoTokenizer, AutoConfig
 
 from dp_gfn.nets import bert
-from dp_gfn.nets.gflownet import output_logits_fn, output_total_flow_fn
-from dp_gfn.nets.initial_encoders import label_score_fn, state_featurizer_fn
+from dp_gfn.nets.gflownet import gflownet_forward_fn, output_total_flow_fn
+from dp_gfn.nets.initial_encoders import label_score_fn
 from dp_gfn.utils import masking, scores
 from dp_gfn.utils.pretrains import \
     batch_token_embeddings_to_batch_word_embeddings
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 GFlowNetState = namedtuple("GFlowNetState", ["optimizer", "step"])
-GFlowNetParams = namedtuple("GFlowNetParams", ["bert", "state_encoder", "policy", "Z"])
+GFlowNetParams = namedtuple("GFlowNetParams", ["bert", "policy", "Z"])
 
 
 class DPGFN:
@@ -38,7 +39,7 @@ class DPGFN:
         self.bert_model = hk.without_apply_rng(hk.transform(bert.get_bert_token_embeddings_fn))
         self.bert_params = self.bert_model.init(
             self.key,
-            # self.bert_config,
+            self.model_size,
             jnp.ones(
                 (
                     self.batch_size,
@@ -50,41 +51,26 @@ class DPGFN:
             jnp.ones((self.batch_size, self.bert_config["max_position_embeddings"],), dtype=jnp.int32),
         )
 
-        self.state_encoder = hk.without_apply_rng(hk.transform(state_featurizer_fn))
-        self.state_encoder_params = self.state_encoder.init(
-            self.key,
-            jnp.ones(
-                (
-                    self.batch_size,
-                    self.num_variables,
-                    self.bert_config["hidden_size"],
-                )
-            ),
-            self.node_embedding_dim,
-        )
-        self.state_encoder = vmap(self.state_encoder.apply, in_axes=(None, 0, None))
-
-        self.gflownet = hk.without_apply_rng(hk.transform(output_logits_fn))
-        base_mask = masking.base_mask(7, self.num_variables)
+        self.gflownet = hk.without_apply_rng(hk.transform(gflownet_forward_fn))
+        base_masks = masking.base_masks(self.num_variables, self.num_variables) 
         self.gflownet_params = self.gflownet.init(
             self.key,
-            jnp.ones((self.num_variables**2, self.node_embedding_dim * 2)),
-            jnp.ones(
-                (self.num_variables**2,), dtype=int
-            ),  # TODO: use int label here, what about labels' embeddings?
-            base_mask,
+            jnp.ones((self.num_variables, self.model_size)),
+            jnp.array(1, dtype=jnp.int32),
+            np.zeros((self.num_variables, ), dtype=np.int32),
+            base_masks,
             self.num_tags,
             self.num_layers,
             self.num_heads,
             self.key_size,
         )
         self.gflownet = vmap(
-            self.gflownet.apply, in_axes=(None, 0, 0, 0, None, None, None, None)
+            self.gflownet.apply, in_axes=(None, 0, 0, 0, 0, None, None, None, None)
         )
 
         self.Z = hk.without_apply_rng(hk.transform(output_total_flow_fn))
         self.Z_params = self.Z.init(
-            self.key, jnp.ones((self.bert_config["hidden_size"],))
+            self.key, jnp.ones((self.model_size,))
         )
         self.Z = vmap(self.Z.apply, in_axes=(None, 0))
 
@@ -111,12 +97,11 @@ class DPGFN:
         self.num_heads = self.config.model.backbone.encoder_block.num_heads
         self.key_size = self.config.model.backbone.encoder_block.d_k
         self.node_embedding_dim = self.config.model.common.node_embedding_dim
+        self.model_size = self.num_heads * self.key_size
         self.init_scale = 2.0 / self.config.model.backbone.num_layers
         self.agg_func = self.config.model.pref_encoder.agg_func
 
         config = self.config.algorithm
-        # self.backward_policy = config.backward_policy
-        # self.score_fn = config.score_fn
 
         # train hyperparameters
         config = config.train
@@ -144,7 +129,6 @@ class DPGFN:
     def loss(
         self,
         bert_params,
-        state_encoder_params,
         gflownet_params,
         Z_params,
         tokens,
@@ -152,73 +136,83 @@ class DPGFN:
         golds,
     ):
         # Initialize state embeddings
-        token_embeddings = jit(self.bert_model.apply)(bert_params, **tokens)
+        token_embeddings = jit(self.bert_model.apply, static_argnums=(1, ))(bert_params, self.model_size, **tokens)
         sentence_embeddings = token_embeddings.mean(1)
-        word_embeddings = batch_token_embeddings_to_batch_word_embeddings(
+        node_embeddings = batch_token_embeddings_to_batch_word_embeddings( # TODO: choose first token?
             tokens=tokens,
             token_embeddings=token_embeddings,
             agg_func=self.agg_func,
             max_word_length=self.num_variables,
         )
-        state_embeddings = jit(self.state_encoder, static_argnums=(2,))(
-            state_encoder_params, word_embeddings, self.node_embedding_dim
-        )
 
-        log_Z = jit(self.Z)(Z_params, sentence_embeddings)
+        log_Z = jit(self.Z)(Z_params, sentence_embeddings).squeeze(axis=-1)
         traj_log_pF, traj_log_pB, complete_states = self.sample(
-            gflownet_params, state_embeddings, num_words_list
+            gflownet_params, node_embeddings, num_words_list
         )
         log_R = jnp.log(scores.unlabeled_graph_edit_distance(complete_states['adjacency'], golds))
 
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
 
-    def sample(self, gflownet_params, state_embeddings, num_words_list):
+    def sample(self, gflownet_params, node_embeddings, num_words_list):
         states = masking.StateBatch(self.batch_size, self.num_variables, num_words_list)
-
+        node_ids = jnp.zeros((self.batch_size, ), dtype=jnp.int32)
+        
         traj_log_pF = jnp.zeros((self.batch_size,), dtype=jnp.float32)
         traj_log_pB = jnp.zeros((self.batch_size,), dtype=jnp.float32)
-
+        
+        actions = None
+        
         for t in range(self.num_variables):
             print(t)
             self.key, subkey1, subkey2 = jax.random.split(self.key, 3)
 
+            dones = masking.check_done(states['masks'], states['num_words']) 
+            if np.all(dones):
+                break
+            
             # Exploitation: Sample action based on GFlowNet policy
-            log_pi = jit(self.gflownet, static_argnums=(4, 5, 6, 7))(
+            log_pi, next_node_logits = jit(self.gflownet, static_argnums=(5, 6, 7, 8))(
                 gflownet_params,
-                state_embeddings,
+                node_embeddings,
+                node_ids,
                 states["labels"],
-                states["mask"],
+                states["masks"],
                 self.num_tags,
                 self.num_layers,
                 self.num_heads,
                 self.key_size,
             )
+            
+            next_node_ids = next_node_logits.argmax(axis=-1)
+            
+            # Only sample next node at step 0 
+            if t != 0:
+                # Exploration: Sample action uniformly at random
+                log_uniform = masking.uniform_log_policy(masks=states["masks"][0])
+                is_exploration = jax.random.bernoulli(
+                    subkey1, p=self.exploration_rate, shape=(self.batch_size, 1)
+                )  # TODO: stimulated annealing
 
-            # Exploration: Sample action uniformly at random
-            log_uniform = masking.uniform_log_policy(states["mask"])
-            is_exploration = jax.random.bernoulli(
-                subkey1, p=self.exploration_rate, shape=(self.batch_size, 1)
-            )  # TODO: stimulated annealing
+                # Mixing GFlowNet policy and uniform policy:
+                # \pi = (1 - delta) * Policy + delta * Uniform
+                log_pi = jnp.where(is_exploration, log_uniform, log_pi)
 
-            # Mixing GFlowNet policy and uniform policy:
-            # \pi = (1 - delta) * Policy + delta * Uniform
-            log_pi = jnp.where(is_exploration, log_uniform, log_pi)
+                # Sample actions
+                actions = masking.batch_random_choice(
+                    subkey2, jnp.exp(log_pi), states["masks"]
+                )
 
-            # Sample actions
-            actions = masking.batch_random_choice(
-                subkey2, jnp.exp(log_pi), states["mask"]
-            )
-
-            log_probs = jnp.take_along_axis(log_pi, actions, axis=1).squeeze(-1)
-            traj_log_pF += log_probs
-            traj_log_pB += masking.uniform_log_policy(
-                states["mask"],
-                is_forward=False,
-            )  # Uniform backward policy TODO: 
+                log_probs = jnp.take_along_axis(log_pi, actions, axis=1).squeeze(-1)
+                 
+                traj_log_pF += log_probs * (1 - dones)
+                traj_log_pB += masking.uniform_log_policy(
+                    states["masks"][0],
+                    is_forward=False,
+                )  * (1 - dones) # Uniform backward policy 
 
             # Move to the next state
-            states.step(actions.squeeze(-1))
-            jax.clear_caches()
+            states.step(node_ids=next_node_ids, prev_node_ids=node_ids, actions=actions)
+            node_ids = next_node_ids
 
         return traj_log_pF, traj_log_pB, states
 
@@ -237,9 +231,8 @@ class DPGFN:
                     add_special_tokens=False,
                 )
 
-                grads, logs = grad(self.loss, argnums=(0, 1, 2, 3, ), has_aux=True)(
+                grads, logs = grad(self.loss, argnums=(0, 1, 2, ), has_aux=True)(
                     self.bert_params,
-                    self.state_encoder_params,
                     self.gflownet_params,
                     self.Z_params,
                     tokens,
