@@ -141,8 +141,9 @@ class StateBatch:
         masks[0][batch_ids, prev_node_ids] = True 
         masks[0][batch_ids, 0] = False  # Ensure no outcoming edge from ROOT
         self._data['masks'][0] = masks[0]
+        actions = actions.squeeze(-1)
         self._data['adjacency'][batch_ids[~dones], actions[~dones], prev_node_ids[~dones]] = 1 
-        self._data['labels'][batch_ids, node_ids] = 1
+        self._data['labels'][batch_ids, prev_node_ids] = 1
         
         return 1
     
