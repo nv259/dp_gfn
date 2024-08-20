@@ -66,12 +66,8 @@ def collate_nx_graphs(batch):
     max_num_nodes = max(len(graph.nodes) for graph in graphs)
 
     # Create a batched adjacency matrix
-    batched_graph = np.zeros(
-        (len(batch), max_num_nodes, max_num_nodes), dtype=np.int_
-    )
-    batched_labels = np.zeros(
-        (len(batch), max_num_nodes, max_num_nodes), dtype=np.int_
-    )
+    batched_graph = np.zeros((len(batch), max_num_nodes, max_num_nodes), dtype=np.int_)
+    batched_labels = np.zeros((len(batch), max_num_nodes, max_num_nodes), dtype=np.int_)
 
     for i, graph in enumerate(graphs):
         for u, v, data in graph.edges(data=True):
@@ -87,19 +83,17 @@ def collate_nx_graphs(batch):
 
 
 def np_collate_fn(batch):
-    graphs = [item['graph'] for item in batch]
-    text = ['[CLS] ' + item['text'] for item in batch]
-    num_words = [item['num_words'] for item in batch]   # TODO: ascertain num_words already contains ROOT
-    
+    graphs = [item["graph"] for item in batch]
+    text = ["[CLS] " + item["text"] for item in batch]
+    num_words = [
+        item["num_words"] for item in batch
+    ]  # TODO: ascertain num_words already contains ROOT
+
     graphs = np.array(graphs, dtype=np.int32)
     text = text
     num_words = np.array(num_words, dtype=np.int32)
-     
-    return {
-        "graph": graphs,
-        "text": text,
-        "num_words": num_words
-    }
+
+    return {"graph": graphs, "text": text, "num_words": num_words}
 
 
 class BaseDataset(Dataset):
@@ -191,7 +185,10 @@ def get_dataloader(
         )
     else:
         dataloader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=shuffle, num_workers=num_workers,
+            dataset,
+            batch_size=batch_size,
+            shuffle=shuffle,
+            num_workers=num_workers,
             collate_fn=np_collate_fn,
         )
 
