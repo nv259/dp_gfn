@@ -20,7 +20,7 @@ from transformers import AutoConfig, AutoTokenizer
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 GFlowNetState = namedtuple("GFlowNetState", ["optimizer", "step"])
-GFlowNetParams = namedtuple("GFlowNetParams", ["bert", "policy", "Z"])
+GFlowNetParams = namedtuple("GFlowNetParams", ["bert", "gflownet", "Z"])
 
 
 class DPGFN:
@@ -129,15 +129,18 @@ class DPGFN:
     def init_policy(self):
         self.model = hk.without_apply_rng(hk.transform(GFlowNetState))
 
-        policy_lr = self.config.algorithm.train.optimizer.policy_lr
+        gflownet_lr = self.config.algorithm.train.optimizer.gflownet_lr
         Z_lr = self.config.algorithm.train.optimizer.Z_lr
         bert_factor = self.config.algorithm.train.optimizer.bert_factor
         # weight_decay = self.config.algorithm.train.optimizer.weight_decay
 
         # TODO: Implement lr_scheduler
         self.Z_optimizer = optax.adam(Z_lr)
+        self.Z_state = self.Z_optimizer.init(self.Z_params)
         self.bert_optimizer = optax.adam(bert_factor * Z_lr)
-        self.policy_optimizer = optax.adam(policy_lr)
+        self.bert_state = self.bert_optimizer.init(self.bert_params)
+        self.gflownet_optimizer = optax.adam(gflownet_lr)
+        self.gflownet_state = self.gflownet_optimizer.init(self.gflownet_params)
 
     def loss(
         self,
@@ -255,7 +258,8 @@ class DPGFN:
                     add_special_tokens=False,
                 )
 
-                grads, logs = grad(self.loss, argnums=(0, 1, 2), has_aux=True)(
+                (bert_grads, gflownet_grads, Z_grads), logs = grad(
+                    self.loss, argnums=(0, 1, 2), has_aux=True)(
                     self.bert_params,
                     self.gflownet_params,
                     self.Z_params,
@@ -264,14 +268,20 @@ class DPGFN:
                     batch["graph"],
                 )
 
-                print(grads)
-
                 # TODO: Inspect optax!
-                # updates, opt_state = self.bert_optimizer.update(
-                #     grads,
-                # )
+                bert_updates, self.bert_state = self.bert_optimizer.update(
+                    bert_grads, self.bert_state
+                )
+                gflownet_updates, self.gflownet_state = self.gflownet_optimizer.update(
+                    gflownet_grads, self.gflownet_state
+                )
+                Z_updates, self.Z_state = self.Z_optimizer.update(Z_grads, self.Z_state)
+                
+                self.bert_params = optax.apply_updates(self.bert_params, bert_updates)
+                self.gflownet_params = optax.apply_updates(self.gflownet_params, gflownet_updates) 
+                self.Z_params = optax.apply_updates(self.Z_params, Z_updates)
 
-                pbar.set_postfix(loss=f"{logs['loss']:.2f}")
+                pbar.set_postfix(step=f"{iteration}", loss=f"{logs['loss']:.2f}", )
 
         # TODO: Continue here
         pass
@@ -289,8 +299,8 @@ class DPGFN:
 
 def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1): 
     assert log_Z.shape == traj_log_pF.shape == traj_log_pB.shape == log_R.shape
-    
-    error = jnp.squeeze(log_Z + traj_log_pF - log_R - traj_log_pB, axis=-1)
+     
+    error = log_Z + traj_log_pF - log_R - traj_log_pB
     loss = jnp.mean(optax.huber_loss(error, delta=delta))
 
     logs = {
