@@ -2,7 +2,6 @@
 
 import haiku as hk
 import jax.nn as nn
-import jax.numpy as jnp
 from dp_gfn.nets.attention import LinearMultiHeadAttention
 
 
@@ -37,43 +36,34 @@ class LinearTransformerBlock(hk.Module):
         super().__init__(name=name)
         self.num_heads = num_heads
         self.key_size = key_size
-        self.model_size = self.num_heads * self.key_size
+        self.model_size = model_size
         self.init_scale = init_scale
         self.num_tags = num_tags
 
     def __call__(self, x, labels):
         # w_init = hk.initializers.VarianceScaling(self.init_scale)
 
-        arc_keys = hk.Embed(self.num_tags, self.model_size, name="relation2keys")(labels)
-        arc_values = hk.Embed(self.num_tags, self.model_size, name="relation2values")(labels)
+        arc_keys = hk.Embed(self.num_tags, self.model_size)(labels)
+        arc_values = hk.Embed(self.num_tags, self.model_size)(labels)
+
         # Attention layer
-        # preattn_labels_embedding = hk.Embed(
-        #     self.num_tags, self.embedding_size, name="preattn_embedding"
-        # )(labels)
-        # hiddens = hk.LayerNorm(
-        #     axis=-1, create_scale=True, create_offset=True, name="preattn_layernorm"
-        # )(jnp.concatenate([preattn_labels_embedding, edges_embedding], axis=-1))
         attn = LinearMultiHeadAttention(
             num_heads=self.num_heads,
             key_size=self.key_size,
             w_init_scale=self.init_scale,
         )(x, x, x, arc_keys, arc_values)
 
+        # Add & Norm
         hiddens = x + attn
         hiddens = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(hiddens)
 
         # FFN layer
-        # preffn_labels_embedding = hk.Embed(
-        #     self.num_tags, self.embedding_size, name="preffn_embedding"
-        # )(labels)
-        # hiddens = hk.LayerNorm(
-        #     axis=-1, create_scale=True, create_offset=True, name="preffn_layernorm"
-        # )(jnp.concatenate([preffn_labels_embedding, edges_embedding], axis=-1))
         mlp_output = DenseBlock(
             output_size=self.model_size,
             init_scale=self.init_scale,
         )(hiddens)
 
+        # Add & Norm
         output = mlp_output + hiddens
         output = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(output)
 

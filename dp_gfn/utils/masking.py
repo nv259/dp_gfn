@@ -1,5 +1,6 @@
 import numpy as np
-import jax.numpy as jnp 
+
+import jax.numpy as jnp
 from jax import random
 
 
@@ -29,13 +30,13 @@ def batched_base_masks(
     # To this end, only first elements, i.e. the `ROOT`, of the initial masks are set to True
     edge_mask = np.zeros((batch_size, num_variables), dtype=np.bool_)
     edge_mask[:, 0] = True
-   
+
     # Mask for sampling next node (reverse of the previous edge mask)
     node_mask = np.ones((batch_size, num_variables), dtype=np.bool_)
     node_mask[:, 0] = False
     for idx, num_words in enumerate(num_words_list):
-        node_mask[idx, num_words + 1: ] = False
-    
+        node_mask[idx, num_words + 1 :] = False
+
     return [edge_mask, node_mask]
 
 
@@ -45,13 +46,13 @@ def base_masks(
 ):
     edge_mask = np.zeros(num_variables, dtype=np.bool_)
     edge_mask[0] = True
-    
+
     node_mask = np.ones(num_variables, dtype=np.bool_)
-    node_mask[0] = False 
-    node_mask[num_words + 1: ] = False
-    
+    node_mask[0] = False
+    node_mask[num_words + 1 :] = False
+
     return [edge_mask, node_mask]
-    
+
 
 def mask_logits(logits, masks):
     return masks * logits + (1 - masks) * MASKED_VALUE
@@ -77,12 +78,12 @@ def uniform_log_policy(masks, is_forward=True):
     masks = masks.reshape(masks.shape[0], -1)
     num_valid_actions = jnp.sum(masks, axis=-1, keepdims=True)
     log_pi = -jnp.log(num_valid_actions)
-   
-    if is_forward:  
-        log_pi = mask_logits(log_pi, masks)    
-    else: 
+
+    if is_forward:
+        log_pi = mask_logits(log_pi, masks)
+    else:
         log_pi = log_pi.squeeze(-1)
-        
+
     return log_pi
 
 
@@ -94,21 +95,26 @@ class StateBatch:
         num_words_list,
     ):
         self.batch_size = batch_size
-        self.num_variables = num_variables 
-        
+        self.num_variables = num_variables
+
         self._data = {
             "labels": np.zeros((self.batch_size, self.num_variables), dtype=np.int32),
-            "masks": batched_base_masks(    # (edge_mask, node_mask)
-                    batch_size=self.batch_size,
-                    num_variables=self.num_variables,
-                    num_words_list=num_words_list,
+            "masks": batched_base_masks(  # (edge_mask, node_mask)
+                batch_size=self.batch_size,
+                num_variables=self.num_variables,
+                num_words_list=num_words_list,
             ),
             "num_words": num_words_list,
-            "adjacency": np.zeros((self.batch_size, self.num_variables, self.num_variables), dtype=np.int32)
+            "adjacency": np.zeros(
+                (self.batch_size, self.num_variables, self.num_variables),
+                dtype=np.int32,
+            ),
         }
 
     def __len__(self):
-        return len(self._data["labels"], )
+        return len(
+            self._data["labels"],
+        )
 
     def __getitem__(self, key: str):
         return self._data[key]
@@ -128,25 +134,25 @@ class StateBatch:
 
     def step(self, node_ids, prev_node_ids, actions=None):
         masks = self.__getitem__("masks")
-        num_words = self.__getitem__('num_words')
+        num_words = self.__getitem__("num_words")
         dones = check_done(masks, num_words)
         batch_ids = np.arange(self.batch_size)
 
-        masks[1][batch_ids, node_ids] = False 
-        self._data['masks'][1] = masks[1]
-        
+        masks[1][batch_ids, node_ids] = False
+        self._data["masks"][1] = masks[1]
+
         if actions is None:
-            return 0 
-        
-        masks[0][batch_ids, prev_node_ids] = True 
+            return 0
+
+        masks[0][batch_ids, prev_node_ids] = True
         masks[0][batch_ids, 0] = False  # Ensure no outcoming edge from ROOT
-        self._data['masks'][0] = masks[0]
+        self._data["masks"][0] = masks[0]
         actions = actions.squeeze(-1)
-        self._data['adjacency'][batch_ids[~dones], actions[~dones], prev_node_ids[~dones]] = 1 
-        self._data['labels'][batch_ids, prev_node_ids] = 1
-        
+        self._data["adjacency"][batch_ids[~dones], actions[~dones], prev_node_ids[~dones]] = 1
+        self._data["labels"][batch_ids, prev_node_ids] = 1
+
         return 1
-    
+
     def reset(
         self,
     ):

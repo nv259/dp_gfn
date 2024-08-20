@@ -1,11 +1,11 @@
 import numpy as np
-import jax.numpy as jnp
-import jax
+
 import haiku as hk
-from transformers import AutoModel, AutoConfig
-from dp_gfn.utils.pretrains import split_into_heads
-from hydra import initialize, compose
+import jax
+import jax.numpy as jnp
 from dp_gfn.nets.encoders import DenseBlock
+from dp_gfn.utils.pretrains import split_into_heads
+from transformers import AutoConfig, AutoModel
 
 
 class PretrainedWeights(object):
@@ -401,4 +401,3 @@ def get_bert_token_embeddings_fn(
     token_embeddings = DenseBlock(output_size=model_size)(token_embeddings)
 
     return token_embeddings
-
