@@ -6,8 +6,8 @@ defaults:
 model:
     # common hyperparams (all sub-models will inherit these hyperparams if not specified)
     common:
-        node_embedding_dim: 64 
-        label_embedding_dim: 64
+        node_embedding_dim: 256
+        label_embedding_dim: 256
         hidden_layers: [256, 128]
         dropout_rate: 0.1
         activation: ReLU
@@ -31,7 +31,7 @@ model:
 train_path: /media/doublemint/SharedDisk/repo/GFlowNets-DP/dp_gfn/data/ud-treebanks-v2.14/UD_English-Atis/en_atis-ud-train.conllu
 batch_size: 4
 num_workers: 4
-max_number_of_words: 40
+max_number_of_words: 100
 init_label_embeddings: False
 seed: 42
 device: cuda
