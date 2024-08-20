@@ -1,8 +1,7 @@
 ## the base code is from https://github.com/tristandeleu/jax-dag-gflownet
-import jax.numpy as jnp
 import haiku as hk
-
 import jax.nn as nn
+import jax.numpy as jnp
 
 
 class LinearMultiHeadAttention(hk.MultiHeadAttention):
@@ -14,10 +13,10 @@ class LinearMultiHeadAttention(hk.MultiHeadAttention):
         key_heads = self._linear_projection(key, self.key_size, "key")
         value_heads = self._linear_projection(value, self.value_size, "value")
         arc_keys = arc_keys.reshape(key_heads.shape)
-        arc_values= arc_values.reshape(value_heads.shape)
+        arc_values = arc_values.reshape(value_heads.shape)
         key_heads = key_heads + arc_keys
         value_heads = value_heads + arc_values
-        
+
         # Map the query & key with a feature map
         query_heads = feature_map(query_heads)
         key_heads = feature_map(key_heads)

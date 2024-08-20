@@ -1,11 +1,11 @@
-from dp_gfn.utils.pretrains import batch_token_embeddings_to_batch_word_embeddings
-
 import haiku as hk
 import jax.numpy as jnp
-from transformers import AutoConfig
 from dp_gfn.nets.bert import BertModel
+from dp_gfn.utils.pretrains import batch_token_embeddings_to_batch_word_embeddings
+from transformers import AutoConfig
 
 
+# WARNING: Deprecated state encoding approach
 class StateEncoder(hk.Module):
     def __init__(self, num_variables=160, node_embedding_dim=128):
         super().__init__()
@@ -33,7 +33,6 @@ class StateEncoder(hk.Module):
 
         return state_embeddings
 
-
 def state_featurizer_fn(word_embeddings, node_embedding_dim):
     state_embeddings = StateEncoder(
         num_variables=word_embeddings.shape[-2],
@@ -43,6 +42,7 @@ def state_featurizer_fn(word_embeddings, node_embedding_dim):
     return state_embeddings
 
 
+# WARNING: Deprecated version
 class PrefEncoder(hk.Module):
     def __init__(
         self, pretrained_path="bert-base-uncased", agg_func="mean", max_word_length=160
@@ -54,9 +54,8 @@ class PrefEncoder(hk.Module):
         self.max_word_length = max_word_length
 
     def __call__(self, tokens, training=False):
-        token_embeddings = BertModel(self.config)(
-            **tokens, training=training
-        )  # TODO: ascertain training's argnums is 3
+        # TODO: Enable training option for pretrained model
+        token_embeddings = BertModel(self.config)(**tokens, training=training)  
 
         word_embeddings = batch_token_embeddings_to_batch_word_embeddings(
             tokens=tokens,
@@ -77,7 +76,11 @@ class Biaffine(hk.Module):
         self.intermediate_dim = intermediate_dim
 
     def __call__(self, head, dep):
-        w_init = hk.initializers.RandomNormal() if self.init_scale is None else hk.initializers.VarianceScaling(self.init_scale)
+        w_init = (
+            hk.initializers.RandomNormal()
+            if self.init_scale is None
+            else hk.initializers.VarianceScaling(self.init_scale)
+        )
 
         W = hk.get_parameter(
             name="W",
@@ -108,4 +111,4 @@ class Biaffine(hk.Module):
 def label_score_fn(head, dep, num_tags):
     lab_score = Biaffine(num_tags=num_tags)(head, dep)
 
-    return lab_score 
+    return lab_score
