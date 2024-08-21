@@ -280,11 +280,11 @@ class DPGFN:
                 self.Z_params = optax.apply_updates(self.Z_params, Z_updates)
 
                 if iteration % self.eval_every_n == 0:
-                    val_loss = self.eval(val_loader)
+                    val_loss = self.val_step(val_loader)
                     val_losses.append(val_loss)
                     
                     if self.eval_on_train:
-                        train_loss = self.eval(train_loader) 
+                        train_loss = self.val_step(train_loader) 
                         train_losses.append(train_loss)
                 
                 if self.eval_on_train: 
