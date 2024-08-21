@@ -125,6 +125,7 @@ class DPGFN:
         self.eval_on_train = config.eval_on_train
         self.exploration_rate = config.exploration_rate
         self.clip_grad = config.clip_grad
+        self.eval_every_n = config.eval_every_n
 
     def init_policy(self):
         self.model = hk.without_apply_rng(hk.transform(GFlowNetState))
@@ -175,9 +176,8 @@ class DPGFN:
         )
        
         # Compute reward: # TODO: inspect other metrics?
-        log_R = jnp.log(
-            scores.unlabeled_graph_edit_distance(complete_states["adjacency"], golds)
-        )
+        log_R = jnp.log(jit(
+            scores.unlabeled_graph_edit_distance)(complete_states["adjacency"], golds))
 
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
 
@@ -190,7 +190,6 @@ class DPGFN:
         traj_log_pB = jnp.zeros((self.batch_size,), dtype=jnp.float32)
 
         for t in range(self.num_variables):
-            print(t)
             self.key, subkey1, subkey2 = jax.random.split(self.key, 3)
 
             dones = masking.check_done(states["masks"], states["num_words"])
@@ -244,7 +243,7 @@ class DPGFN:
         return traj_log_pF, traj_log_pB, states
 
     def train(self, train_loader: DataLoader, val_loader: DataLoader):
-        losses, rewards = [], []
+        train_losses, val_losses = [], []
 
         with trange(self.max_steps, desc="Training") as pbar:
             for iteration in pbar:
@@ -268,7 +267,6 @@ class DPGFN:
                     batch["graph"],
                 )
 
-                # TODO: Inspect optax!
                 bert_updates, self.bert_state = self.bert_optimizer.update(
                     bert_grads, self.bert_state
                 )
@@ -281,20 +279,40 @@ class DPGFN:
                 self.gflownet_params = optax.apply_updates(self.gflownet_params, gflownet_updates) 
                 self.Z_params = optax.apply_updates(self.Z_params, Z_updates)
 
-                pbar.set_postfix(step=f"{iteration}", loss=f"{logs['loss']:.2f}", )
-
-        # TODO: Continue here
-        pass
-
-    def evaluation(
-        self,
-    ):
+                if iteration % self.eval_every_n == 0:
+                    val_loss = self.eval(val_loader)
+                    val_losses.append(val_loss)
+                    
+                    if self.eval_on_train:
+                        train_loss = self.eval(train_loader) 
+                        train_losses.append(train_loss)
+                
+                if self.eval_on_train: 
+                    pbar.set_postfix(epsilon=f"{self.exploration_rate:.2f}", loss=f"{logs['loss']:.2f}", train_loss=f"{train_loss:.2f}", val_loss=f"{val_loss:.2f}")
+                else:
+                    pbar.set_postfix(epsilon=f"{self.exploartion_rate:.2f}", loss=f"{logs['loss']:.2f}", val_loss=f"{val_loss:.2f}")
+            
         pass
 
     def val_step(
         self,
+        val_loader
     ):
-        pass
+        losses = []
+        
+        for batch in val_loader:
+            tokens = self.tokenizer(
+                batch["text"],
+                return_tensors="jax",
+                padding="max_length",
+                truncation=True,
+                add_special_tokens=False,
+            )
+            
+            log = self.loss(self.bert_params, self.gflownet_params, self.Z_params, tokens, batch["num_words"], batch["graph"])
+            losses.append(log['loss'])
+        
+        return np.mean(losses)
 
 
 def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1): 
