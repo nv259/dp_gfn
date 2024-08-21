@@ -138,7 +138,6 @@ class DPGFN:
         bert_factor = self.config.algorithm.train.optimizer.bert_factor
         # weight_decay = self.config.algorithm.train.optimizer.weight_decay
 
-        # TODO: Implement lr_scheduler
         self.Z_optimizer = optax.adam(Z_lr)
         self.Z_state = self.Z_optimizer.init(self.Z_params)
         self.bert_optimizer = optax.adam(bert_factor * Z_lr)
@@ -184,7 +183,7 @@ class DPGFN:
 
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
 
-    def sample(self, gflownet_params, node_embeddings, num_words_list):
+    def sample(self, gflownet_params, node_embeddings, num_words_list, delta):
         states = masking.StateBatch(self.batch_size, self.num_variables, num_words_list)
         node_ids = jnp.zeros((self.batch_size,), dtype=jnp.int32)
         actions = None
@@ -220,7 +219,7 @@ class DPGFN:
                 # Exploration: Sample action uniformly at random
                 log_uniform = masking.uniform_log_policy(masks=states["masks"][0])
                 is_exploration = jax.random.bernoulli(
-                    subkey1, p=self.exploration_rate, shape=(self.batch_size, 1)
+                    subkey1, p=delta, shape=(self.batch_size, 1)
                 )  # TODO: stimulated annealing
 
                 # Mixing GFlowNet policy and uniform policy:
@@ -247,10 +246,23 @@ class DPGFN:
         return traj_log_pF, traj_log_pB, states
 
     def train(self, train_loader: DataLoader, val_loader: DataLoader):
+        save_folder = os.path.join(
+            self.save_path, 
+            f"run_bs={self.batch_size}_epsilon={self.exploration_rate}_dim={self.model_size}_nlayers={self.num_layers}_nheads={self.num_heads}")
+        os.makedirs(save_folder, exist_ok=True)
+        
         train_losses, val_losses = [], []
+        
+        exploration_schedule = jax.jit(optax.linear_schedule(
+            init_value=jnp.array(self.exploration_rate),
+            end_value=jnp.array(self.exploration_rate / 10.),
+            transition_steps=self.max_steps // 2,
+            transition_begin=self.max_steps // 1000
+        ))
 
         with trange(self.max_steps, desc="Training") as pbar:
             for iteration in pbar:
+                delta = exploration_schedule(iteration)
                 batch = next(iter(train_loader))
 
                 tokens = self.tokenizer(
@@ -269,6 +281,7 @@ class DPGFN:
                     tokens,
                     batch["num_words"],
                     batch["graph"],
+                    delta
                 )
 
                 bert_updates, self.bert_state = self.bert_optimizer.update(
@@ -291,6 +304,12 @@ class DPGFN:
                         train_loss = self.val_step(train_loader) 
                         train_losses.append(train_loss)
                 
+                if iteration % self.save_every_n == 0:
+                    io.save(os.path.join(save_folder, f"model_{iteration}.npz"),
+                            bert=self.bert_params,
+                            gflownet=self.gflownet_params,
+                            Z=self.Z_params) 
+                 
                 if self.eval_on_train: 
                     pbar.set_postfix(
                         epsilon=f"{self.exploration_rate:.2f}",
@@ -306,18 +325,17 @@ class DPGFN:
                     )
             
         # Save model parameters
-        save_folder = os.path.join(
-            self.save_path, 
-            f"run_bs={self.batch_size}_epsilon={self.exploration_rate}_dim={self.model_size}_nlayers={self.num_layers}_nheads={self.num_heads}")
-        os.makedirs(save_folder, exist_ok=True)
         io.save(os.path.join(save_folder, "model.npz"), 
                 bert=self.bert_params, 
                 gflownet=self.gflownet_params, 
                 Z=self.Z_params)
+        
+        return train_losses, val_losses
 
     def val_step(
         self,
-        val_loader
+        val_loader,
+        delta=0
     ):
         losses = []
         
@@ -330,7 +348,15 @@ class DPGFN:
                 add_special_tokens=False,
             )
             
-            (loss, _) = self.loss(self.bert_params, self.gflownet_params, self.Z_params, tokens, batch["num_words"], batch["graph"])
+            (loss, _) = self.loss(
+                self.bert_params, 
+                self.gflownet_params, 
+                self.Z_params, 
+                tokens, 
+                batch["num_words"], 
+                batch["graph"], 
+                delta=delta
+            )
             losses.append(loss)
         
         return np.mean(losses)
