@@ -1,4 +1,5 @@
 import os
+import io
 from collections import namedtuple
 
 import numpy as np
@@ -108,6 +109,8 @@ class DPGFN:
 
         self.num_variables = self.config.max_number_of_words
         self.batch_size = self.config.batch_size
+        self.save_path = self.config.save_path
+        
         self.num_layers = self.config.model.backbone.num_layers
         self.num_heads = self.config.model.backbone.encoder_block.num_heads
         self.key_size = self.config.model.backbone.encoder_block.d_k
@@ -168,11 +171,11 @@ class DPGFN:
             token_embeddings=token_embeddings,
             agg_func=self.agg_func,
             max_word_length=self.num_variables,
-        )
+        )   # TODO: Find a way that allow parallelization -> JIT
         
         # Sample trajectory $\tau = (s_0 -> s_1 -> ... -> s_n)$
         traj_log_pF, traj_log_pB, complete_states = self.sample(
-            gflownet_params, node_embeddings, num_words_list
+            gflownet_params, node_embeddings, num_words_list, 
         )
        
         # Compute reward: # TODO: inspect other metrics?
@@ -212,6 +215,7 @@ class DPGFN:
             next_node_ids = next_node_logits.argmax(axis=-1)
 
             # Only sample next node at step 0
+            # TODO: JIT here?
             if t != 0:
                 # Exploration: Sample action uniformly at random
                 log_uniform = masking.uniform_log_policy(masks=states["masks"][0])
@@ -288,11 +292,28 @@ class DPGFN:
                         train_losses.append(train_loss)
                 
                 if self.eval_on_train: 
-                    pbar.set_postfix(epsilon=f"{self.exploration_rate:.2f}", loss=f"{logs['loss']:.2f}", train_loss=f"{train_loss:.2f}", val_loss=f"{val_loss:.2f}")
+                    pbar.set_postfix(
+                        epsilon=f"{self.exploration_rate:.2f}",
+                        loss=f"{logs['loss']:.2f}", 
+                        train_loss=f"{train_loss:.2f}",
+                        val_loss=f"{val_loss:.2f}"
+                    )
                 else:
-                    pbar.set_postfix(epsilon=f"{self.exploartion_rate:.2f}", loss=f"{logs['loss']:.2f}", val_loss=f"{val_loss:.2f}")
+                    pbar.set_postfix(
+                        epsilon=f"{self.exploration_rate:.2f}",
+                        loss=f"{logs['loss']:.2f}", 
+                        val_loss=f"{val_loss:.2f}"
+                    )
             
-        pass
+        # Save model parameters
+        save_folder = os.path.join(
+            self.save_path, 
+            f"run_bs={self.batch_size}_epsilon={self.exploration_rate}_dim={self.model_size}_nlayers={self.num_layers}_nheads={self.num_heads}")
+        os.makedirs(save_folder, exist_ok=True)
+        io.save(os.path.join(save_folder, "model.npz"), 
+                bert=self.bert_params, 
+                gflownet=self.gflownet_params, 
+                Z=self.Z_params)
 
     def val_step(
         self,
@@ -316,6 +337,7 @@ class DPGFN:
 
 
 def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1): 
+    
     assert log_Z.shape == traj_log_pF.shape == traj_log_pB.shape == log_R.shape
      
     error = log_Z + traj_log_pF - log_R - traj_log_pB
