@@ -2,15 +2,14 @@ train:
     n_grad_accumulation_steps: 4    # not yet implemented
     max_steps: 100000
     eval_on_train: False
-    exploration_rate: 0.5
+    exploration_rate: 0.005
     stimulated_annealing: False     # not yet implemented
     clip_grad: 10   # not yet implemented
 
     optimizer:
         name: Adam
-        policy_lr: 1e-5
-        Z_lr: ${algorithm.train.optimizer.policy_lr}
-        weight_decay: 1e-4
+        gflownet_lr: 1e-5
+        Z_lr: 1e-4
 
         bert_factor: 8  # pretrained lr 
 
@@ -24,5 +23,8 @@ train:
     loss_fn:
         _target_: null  # trajectory balance loss for gflownet, categorical loss for biaffine
 
-backward_policy: null   # fix uniform by default
-score_fn: null          # graph edit distance by default
+    eval_every_n: 100
+    save_every_n: 1000
+
+    backward_policy: null   # fix uniform by default
+    score_fn: null          # graph edit distance by default
