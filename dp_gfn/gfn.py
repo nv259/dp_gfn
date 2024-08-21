@@ -309,8 +309,8 @@ class DPGFN:
                 add_special_tokens=False,
             )
             
-            log = self.loss(self.bert_params, self.gflownet_params, self.Z_params, tokens, batch["num_words"], batch["graph"])
-            losses.append(log['loss'])
+            (loss, _) = self.loss(self.bert_params, self.gflownet_params, self.Z_params, tokens, batch["num_words"], batch["graph"])
+            losses.append(loss)
         
         return np.mean(losses)
 
