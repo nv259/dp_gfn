@@ -14,7 +14,6 @@ from omegaconf import DictConfig, OmegaConf
 def main(config):
     os.chdir(hydra.utils.get_original_cwd())
     config.seed = random.randint(1, 100000) if config.seed is None else config.seed
-    config.model.num_variables = config.max_number_of_words + 1
 
     log_config = flatten_config(OmegaConf.to_container(config, resolve=True), sep="/")
     log_config = {"/".join(("config", key)): val for key, val in log_config.items()}
@@ -34,7 +33,8 @@ def main(config):
         num_workers=config.num_workers,
         is_train=True,
     )
-
+    config.model.num_variables = max_num_nodes
+    
     try:
         val_loader = get_dataloader(
             path_to_conllu_file=config.train_path.replace("train", "dev"),
