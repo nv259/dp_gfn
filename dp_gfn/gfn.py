@@ -129,6 +129,7 @@ class DPGFN:
         self.exploration_rate = config.exploration_rate
         self.clip_grad = config.clip_grad
         self.eval_every_n = config.eval_every_n
+        self.save_every_n = config.save_every_n
 
     def init_policy(self):
         self.model = hk.without_apply_rng(hk.transform(GFlowNetState))

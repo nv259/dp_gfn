@@ -85,4 +85,3 @@ output_Z:
     activation: ${model.common.activation}
 
 num_variables: ${max_number_of_words}
-# num_tags: ${num_tags}

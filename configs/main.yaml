@@ -28,9 +28,9 @@ model:
     # output_Z:
         # _partial_: True
 
-train_path: /media/doublemint/SharedDisk/repo/GFlowNets-DP/dp_gfn/data/ud-treebanks-v2.14/UD_English-Atis/en_atis-ud-train.conllu
-save_path: /media/doublemint/SharedDisk/repo/GFlowNets-DP/dp_gfn/output/
-batch_size: 4
+train_path: ./data/ud-treebanks-v2.14/UD_English-Atis/en_atis-ud-train.conllu
+save_path: ./output/
+batch_size: 8
 num_workers: 4
 max_number_of_words: 100
 init_label_embeddings: False

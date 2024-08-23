@@ -23,8 +23,8 @@ train:
     loss_fn:
         _target_: null  # trajectory balance loss for gflownet, categorical loss for biaffine
 
-    eval_every_n: 100
-    save_every_n: 1000
+    eval_every_n: 500
+    save_every_n: 5000
 
     backward_policy: null   # fix uniform by default
     score_fn: null          # graph edit distance by default
