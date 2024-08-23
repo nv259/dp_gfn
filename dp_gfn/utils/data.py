@@ -100,7 +100,7 @@ class BaseDataset(Dataset):
     def __init__(
         self,
         path_to_conllu_file: str,
-        max_num_nodes: int = 160,
+        max_number_of_words: int = 100,
         store_nx_graph: bool = False,
         return_edges: bool = False,
     ):
@@ -108,7 +108,7 @@ class BaseDataset(Dataset):
 
         self.path = path_to_conllu_file
         self.store_nx_graph = store_nx_graph
-        self.max_num_nodes = max_num_nodes
+        self.max_num_nodes = 0
         self.return_edges = return_edges
 
         self.rel_id = get_dependency_relation_dict(
@@ -120,79 +120,88 @@ class BaseDataset(Dataset):
         self.data = []
         with open(self.path, "r", encoding="utf-8") as data_file:
             for tokenlist in conllu.parse_tree_incr(data_file):
-                self.data.append(tokenlist)
+                word_dict = {}
+                edges_list = parse_token_tree(tokenlist, tokens=word_dict)
+                edges_list = np.array(
+                    [(source, target, self.rel_id[tag]) for source, target, tag in edges_list]
+                )
+                words_list = [word_dict[idx] for idx in range(1, len(word_dict) + 1)]
+                joined_words = " ".join(words_list)
+                
+                if len(words_list) > max_number_of_words - 1 and 'train' in path_to_conllu_file:
+                    continue 
+                elif len(words_list) > max_number_of_words:
+                    continue
+                  
+                self.data.append(
+                    {
+                        "text": joined_words,
+                        "edges": edges_list,
+                        "num_words": len(words_list),
+                    }
+                ) 
+                
+                self.max_num_nodes = max(self.max_num_nodes, len(words_list))
+
+        if 'train' in path_to_conllu_file:
+            self.max_num_nodes = min(self.max_num_nodes, max_number_of_words) + 1   # ROOT node
+        else:
+            self.max_num_nodes = max_number_of_words
 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, index):
         item = self.data[index]
-
-        word_dict = {}
-        edges_list = parse_token_tree(item, tokens=word_dict)
-        edges_list = np.array(
-            [(source, target, self.rel_id[tag]) for source, target, tag in edges_list]
-        )
-        words_list = [word_dict[idx] for idx in range(1, len(word_dict) + 1)]
-        joined_words = " ".join(words_list)
-
+        
         if self.store_nx_graph:
             G = nx.DiGraph()
-            for source, target, tag in edges_list:
+            for source, target, tag in item['edges']:
                 G.add_edge(source, target, tag=tag)
         else:
             G = adjacency_matrix_from_edges_list(
-                edges_list, num_variables=self.max_num_nodes
+                item['edges'], num_variables=self.max_num_nodes
             )
 
         if (
             self.return_edges
         ):  # cannot batch because of the discrepancy of sizes between edges_lists
             return {
-                "text": joined_words,
+                "text": item['text'],
                 "graph": G,
-                "edges": edges_list,
-                "num_words": len(words_list),
+                "edges": item['edges'],
+                "num_words": item['num_words'],
             }
         else:
-            return {"text": joined_words, "graph": G, "num_words": len(words_list)}
+            return {"text": item['text'], "graph": G, "num_words": item['num_words']}
 
 
 def get_dataloader(
     path_to_conllu_file: str,
-    max_num_nodes: int = 160,
+    max_number_of_words: int = 100,
     return_edges: bool = True,
     store_nx_graph: bool = False,
     batch_size: int = 1,
     shuffle: bool = True,
     num_workers: int = 0,
-    get_num_tags: bool = False,
+    is_train: bool = False,
 ):
     dataset = BaseDataset(
         path_to_conllu_file=path_to_conllu_file,
-        max_num_nodes=max_num_nodes,
-        return_edges=return_edges,
+        max_number_of_words=max_number_of_words,
         store_nx_graph=store_nx_graph,
+        return_edges=return_edges,
     )
 
-    if store_nx_graph:
-        dataloader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            collate_fn=collate_nx_graphs,
-            num_workers=num_workers,
-        )
-    else:
-        dataloader = DataLoader(
-            dataset,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            num_workers=num_workers,
-            collate_fn=np_collate_fn,
-        )
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        collate_fn=collate_nx_graphs if store_nx_graph else np_collate_fn,
+        num_workers=num_workers,
+    )
 
-    if get_num_tags:
-        return dataloader, dataset.num_tags
+    if is_train:
+        return dataloader, dataset.num_tags, dataset.max_num_nodes
     else:
         return dataloader
