@@ -107,7 +107,7 @@ class DPGFN:
             self.config.model.pref_encoder.pretrained_path
         ).to_dict()
 
-        self.num_variables = self.config.max_number_of_words
+        self.num_variables = self.config.model.num_variables
         self.batch_size = self.config.batch_size
         self.save_path = self.config.save_path
         
@@ -153,6 +153,7 @@ class DPGFN:
         tokens,
         num_words_list,
         golds,
+        delta
     ):
         # Initialize state embeddings
         token_embeddings = jit(self.bert_model.apply, static_argnums=(1,))(
@@ -174,7 +175,7 @@ class DPGFN:
         
         # Sample trajectory $\tau = (s_0 -> s_1 -> ... -> s_n)$
         traj_log_pF, traj_log_pB, complete_states = self.sample(
-            gflownet_params, node_embeddings, num_words_list, 
+            gflownet_params, node_embeddings, num_words_list, delta
         )
        
         # Compute reward: # TODO: inspect other metrics?
@@ -183,7 +184,7 @@ class DPGFN:
 
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
 
-    def sample(self, gflownet_params, node_embeddings, num_words_list, delta):
+    def sample(self, gflownet_params, node_embeddings, num_words_list, delta=0.001):
         states = masking.StateBatch(self.batch_size, self.num_variables, num_words_list)
         node_ids = jnp.zeros((self.batch_size,), dtype=jnp.int32)
         actions = None
