@@ -90,11 +90,10 @@ def uniform_log_policy(masks, is_forward=True):
 class StateBatch:
     def __init__(
         self,
-        batch_size,
         num_variables,
         num_words_list,
     ):
-        self.batch_size = batch_size
+        self.batch_size = len(num_words_list)
         self.num_variables = num_variables
 
         self._data = {

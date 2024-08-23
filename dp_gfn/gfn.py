@@ -185,7 +185,7 @@ class DPGFN:
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
 
     def sample(self, gflownet_params, node_embeddings, num_words_list, delta=0.001):
-        states = masking.StateBatch(self.batch_size, self.num_variables, num_words_list)
+        states = masking.StateBatch(self.num_variables, num_words_list)
         node_ids = jnp.zeros((self.batch_size,), dtype=jnp.int32)
         actions = None
 
@@ -336,7 +336,7 @@ class DPGFN:
     def val_step(
         self,
         val_loader,
-        delta=0
+        delta=0.
     ):
         losses = []
         

@@ -199,6 +199,7 @@ def get_dataloader(
         shuffle=shuffle,
         collate_fn=collate_nx_graphs if store_nx_graph else np_collate_fn,
         num_workers=num_workers,
+        drop_last=True
     )
 
     if is_train:
