@@ -1,5 +1,4 @@
 import os
-import io
 from collections import namedtuple
 
 import numpy as np
@@ -12,7 +11,7 @@ import optax
 from dp_gfn.nets import bert
 from dp_gfn.nets.gflownet import gflownet_forward_fn, output_total_flow_fn
 from dp_gfn.nets.initial_encoders import label_score_fn
-from dp_gfn.utils import masking, scores
+from dp_gfn.utils import masking, scores, io
 from dp_gfn.utils.pretrains import \
     batch_token_embeddings_to_batch_word_embeddings
 from jax import grad, jit, vmap
