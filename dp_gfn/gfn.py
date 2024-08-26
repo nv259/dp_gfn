@@ -370,6 +370,14 @@ class DPGFN:
         
         return np.mean(losses)
 
+    def inference(self, tokens, num_words_list, delta=0.):
+        node_embeddings, _ = self.init_states(self.bert_params, tokens)
+        traj_log_pF, _, complete_states = self.sample(
+            self.gflownet_params, node_embeddings, num_words_list, delta=delta
+        )
+        
+        return complete_states
+    
     def load_weights(self, filename):
         params = io.load(filename)
         
