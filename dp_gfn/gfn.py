@@ -24,7 +24,7 @@ GFlowNetParams = namedtuple("GFlowNetParams", ["bert", "gflownet", "Z"])
 
 
 class DPGFN:
-    def __init__(self, config, num_tags):
+    def __init__(self, config, num_tags, pretrained_path=None):
         super().__init__()
         self.config = config
         self.num_tags = num_tags
@@ -99,6 +99,9 @@ class DPGFN:
         # self.label_scorer = vmap(self.label_scorer.apply, in_axes=(None, 0, 0, None))
 
         self.init_policy()
+        
+        if pretrained_path is not None:
+            self.load_weights(pretrained_path)
 
     def initialize_vars(self):
         self.key = jax.random.PRNGKey(self.config.seed)
@@ -367,6 +370,13 @@ class DPGFN:
         
         return np.mean(losses)
 
+    def load_weights(self, filename):
+        params = io.load(filename)
+        
+        self.bert_params = params['bert']
+        self.gflownet_params = params['gflownet']
+        self.Z_params = params['Z']
+     
 
 def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1): 
     
