@@ -21,20 +21,21 @@ def main(config):
     config = OmegaConf.to_container(config, resolve=True)
     config = DictConfig(config)
 
-    print(OmegaConf.to_yaml(config))
-    with open("hydra_config.txt", "w") as f:
-        f.write(OmegaConf.to_yaml(config))
-
     logging.info("Loading Data")
     train_loader, num_tags, max_num_nodes = get_dataloader(
         path_to_conllu_file=config.train_path,
         max_number_of_words=config.max_number_of_words,
         batch_size=config.batch_size,
         num_workers=config.num_workers,
+        shuffle=False,
         is_train=True,
     )
     config.model.num_variables = max_num_nodes
     
+    print(OmegaConf.to_yaml(config))
+    with open("hydra_config.txt", "w") as f:
+        f.write(OmegaConf.to_yaml(config))
+        
     try:
         val_loader = get_dataloader(
             path_to_conllu_file=config.train_path.replace("train", "dev"),
