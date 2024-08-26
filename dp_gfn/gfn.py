@@ -145,6 +145,25 @@ class DPGFN:
         self.gflownet_optimizer = optax.adam(gflownet_lr)
         self.gflownet_state = self.gflownet_optimizer.init(self.gflownet_params)
 
+    def init_states(self, bert_params, tokens):
+        # Present initial state (s0) as a set of node_embeddings
+        token_embeddings = jit(self.bert_model.apply, static_argnums=(1, ))(
+        # token_embeddings = self.bert_model.apply(
+            bert_params, self.model_size, **tokens
+        )  
+        
+        node_embeddings = batch_token_embeddings_to_batch_word_embeddings(  # TODO: Inspect the others (first, last)
+            tokens=tokens, 
+            token_embeddings=token_embeddings,
+            agg_func=self.agg_func,
+            max_word_length=self.num_variables
+        )   # TODO: Find another way that allow parallelization -> JIT
+        
+        # Embeddings for computing intitial flow 
+        sentence_embeddings = token_embeddings.mean(1)  # TODO: Using sentence embeddings might be plain 
+        
+        return node_embeddings, sentence_embeddings
+
     def loss(
         self,
         bert_params,
@@ -155,23 +174,9 @@ class DPGFN:
         golds,
         delta
     ):
-        # Initialize state embeddings
-        token_embeddings = jit(self.bert_model.apply, static_argnums=(1,))(
-            bert_params, self.model_size, **tokens
-        )
+        node_embeddings, sentence_embeddings = self.init_states(bert_params, tokens)
         
-        # Compute initial state flow log(Z)
-        sentence_embeddings = token_embeddings.mean(1)  # TODO: Maybe using sentence embeddings 
-                                                            # to predict total flow Z is kinda plain?
         log_Z = jit(self.Z)(Z_params, sentence_embeddings).squeeze(axis=-1)
-        
-        # Aggregate token embeddings into word embeddings 
-        node_embeddings = batch_token_embeddings_to_batch_word_embeddings(  # TODO: How bout choosing first tokens?
-            tokens=tokens,
-            token_embeddings=token_embeddings,
-            agg_func=self.agg_func,
-            max_word_length=self.num_variables,
-        )   # TODO: Find a way that allow parallelization -> JIT
         
         # Sample trajectory $\tau = (s_0 -> s_1 -> ... -> s_n)$
         traj_log_pF, traj_log_pB, complete_states = self.sample(
