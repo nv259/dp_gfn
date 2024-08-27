@@ -31,21 +31,6 @@ class DPGFlowNet(hk.Module):
         self.init_scale = 2.0 / self.num_layers
 
     def __call__(self, x, node_id, labels, masks):
-        log_pi, node_embeddings = self.edge_policy(
-            x, node_id, labels, masks[0], output_nodes=True
-        )
-        next_node_logits = self.next_node(
-            node_embeddings.mean(axis=-2), node_embeddings, masks[1]
-        )  # TODO: Should we use only visitted nodes to predict next node to visit?
-
-        return log_pi, next_node_logits
-
-    def Z(self, pref): # TODO: Redesign Z to use input the encoded state
-        return DenseBlock(
-            output_size=self.model_size, init_scale=self.init_scale, name="Z_flow"
-        )(pref).mean(-1)
-
-    def edge_policy(self, x, node_id, labels, masks, output_nodes=False):
         for _ in range(self.num_layers):
             x = LinearTransformerBlock(
                 num_heads=self.num_heads,
@@ -55,6 +40,19 @@ class DPGFlowNet(hk.Module):
                 num_tags=self.num_tags,
             )(x, labels)
 
+        log_pi = self.edge_policy(x, node_id, labels, masks[0])
+        
+        # TODO: Should we use only visitted nodes to predict next node to visit?
+        next_node_logits = self.next_node(x.mean(axis=-2), x, masks[1])  
+
+        return log_pi, next_node_logits
+
+    def Z(self, pref): # TODO: Redesign Z to use input the encoded state
+        return DenseBlock(
+            output_size=self.model_size, init_scale=self.init_scale, name="Z_flow"
+        )(pref).mean(-1)
+
+    def edge_policy(self, x, node_id, masks):
         deps = jnp.repeat(x[jnp.newaxis, node_id], x.shape[-2], axis=-2)
         
         # TODO: What if we use edge policy at step 0?
@@ -64,10 +62,7 @@ class DPGFlowNet(hk.Module):
         logits = logits.squeeze(-1)
         log_pi = log_policy(logits, masks)
 
-        # TODO: Inspect other ways to create graph embeddings from nodes' embeddings
-        graph_emb = x if output_nodes is True else x.mean(axis=-2)
-
-        return log_pi, graph_emb
+        return log_pi
 
     def next_node(self, graph_emb, node_embeddings, masks):
         graph_embs = jnp.repeat(
@@ -110,5 +105,4 @@ def gflownet_forward_fn(
 
 
 def output_total_flow_fn(pref):
-    # TODO: Compare output_size = 1 vs output_size = model_size -> mean
-    return DenseBlock(output_size=1, name="Z_flow")(pref)
+    return DenseBlock(output_size=1, name="Z_flow", init_scale=2. / 12.)(pref)
