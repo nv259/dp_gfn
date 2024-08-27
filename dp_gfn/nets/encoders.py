@@ -41,10 +41,10 @@ class LinearTransformerBlock(hk.Module):
         self.num_tags = num_tags
 
     def __call__(self, x, labels):
-        # w_init = hk.initializers.VarianceScaling(self.init_scale)
+        w_init = hk.initializers.VarianceScaling(self.init_scale)
 
-        arc_keys = hk.Embed(self.num_tags, self.model_size)(labels)
-        arc_values = hk.Embed(self.num_tags, self.model_size)(labels)
+        arc_keys = hk.Embed(self.num_tags, self.model_size, w_init=w_init)(labels)
+        arc_values = hk.Embed(self.num_tags, self.model_size, w_init=w_init)(labels)
 
         # Attention layer
         attn = LinearMultiHeadAttention(

@@ -398,6 +398,6 @@ def get_bert_token_embeddings_fn(
         input_ids, token_type_ids, attention_mask, training=training
     )
     
-    token_embeddings = DenseBlock(output_size=model_size)(token_embeddings)
+    token_embeddings = DenseBlock(output_size=model_size, init_scale=2./12.)(token_embeddings)
 
     return token_embeddings
