@@ -187,8 +187,8 @@ class DPGFN:
         )
        
         # Compute reward: # TODO: inspect other metrics?
-        log_R = jnp.log(jit(
-            scores.unlabeled_graph_edit_distance)(complete_states["adjacency"], golds))
+        log_R = jnp.log(jnp.exp(scores.cosine_similarity(
+            complete_states["adjacency"], golds)))
 
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
 
@@ -321,16 +321,16 @@ class DPGFN:
                  
                 if self.eval_on_train: 
                     pbar.set_postfix(
-                        epsilon=f"{self.exploration_rate:.2f}",
-                        loss=f"{logs['loss']:.2f}", 
-                        train_loss=f"{train_loss:.2f}",
-                        val_loss=f"{val_loss:.2f}"
+                        epsilon=f"{self.exploration_rate:.4f}",
+                        loss=f"{logs['loss']:.4f}", 
+                        train_loss=f"{train_loss:.4f}",
+                        val_loss=f"{val_loss:.4f}"
                     )
                 else:
                     pbar.set_postfix(
-                        epsilon=f"{self.exploration_rate:.2f}",
-                        loss=f"{logs['loss']:.2f}", 
-                        val_loss=f"{val_loss:.2f}"
+                        epsilon=f"{self.exploration_rate:.4f}",
+                        loss=f"{logs['loss']:.4f}", 
+                        val_loss=f"{val_loss:.4f}"
                     )
             
         # Save model parameters
