@@ -67,4 +67,4 @@ class LinearTransformerBlock(hk.Module):
         output = mlp_output + hiddens
         output = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(output)
 
-        return hiddens
+        return output
