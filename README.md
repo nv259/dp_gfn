@@ -1,4 +1,4 @@
-<img src="gfn_process.png" align="center" width="70%"/>
+<img src="gfn_process.png" align="center">
 
 # Dependency Parsing - GFlowNet
 Generative Flow Networks (GFlowNets) offer a method for sampling diverse candidates in active learning by training them to sample approximately in proportion to a given reward function. Our goal is to leverage GFlowNets to generate dependency trees sequentially (as in transition-based parsing) while preserving the structural information characteristic of graph-based approaches. This approach aims to improve dependency parsing performance and introduce a novel method for tackling this problem.
