@@ -40,12 +40,12 @@ class DPGFlowNet(hk.Module):
                 num_tags=self.num_tags,
             )(x, labels)
 
-        log_pi = self.edge_policy(x, node_id, labels, masks[0])
+        log_pi = self.edge_policy(x, node_id, masks[0])
         
         # TODO: Should we use only visitted nodes to predict next node to visit?
-        next_node_logits = self.next_node(x.mean(axis=-2), x, masks[1])  
+        log_node_pi = self.next_node_policy(x.mean(axis=-2), x, masks[1])  
 
-        return log_pi, next_node_logits
+        return log_pi, log_node_pi
 
     def Z(self, pref): # TODO: Redesign Z to use input the encoded state
         return DenseBlock(
@@ -64,18 +64,21 @@ class DPGFlowNet(hk.Module):
 
         return log_pi
 
-    def next_node(self, graph_emb, node_embeddings, masks):
+    def next_node_policy(self, graph_emb, node_embeddings, masks):
         graph_embs = jnp.repeat(
             graph_emb[jnp.newaxis, :], node_embeddings.shape[0], axis=0
         )
         hidden = jnp.concatenate([graph_embs, node_embeddings], axis=-1)
 
-        logits = DenseBlock(1, init_scale=self.init_scale)(hidden)
-        masks = masks.reshape(logits.shape)
-        logits = masking.mask_logits(logits, masks)
+        # logits = DenseBlock(1, init_scale=self.init_scale)(hidden)
+        logits = jax.vmap(
+            Biaffine(num_tags=1, init_scale=self.init_scale), in_axes=(0, 0)
+        )(graph_embs, hidden)
+        
         logits = logits.squeeze(-1)
+        log_pi = log_policy(logits, masks)
 
-        return logits
+        return log_pi
 
 
 def log_policy(logits, masks):
