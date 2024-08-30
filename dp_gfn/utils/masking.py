@@ -59,7 +59,7 @@ def mask_logits(logits, masks):
 
 
 def check_done(masks, num_words):
-    return masks[0].sum(axis=1) == num_words
+    return masks[0].sum(axis=1) == num_words, masks[1].sum(axis=1) == 0
 
 
 def batch_random_choice(key, probas, masks):
@@ -95,7 +95,7 @@ class StateBatch:
     ):
         self.batch_size = len(num_words_list)
         self.num_variables = num_variables
-
+        
         self._data = {
             "labels": np.zeros((self.batch_size, self.num_variables), dtype=np.int32),
             "masks": batched_base_masks(  # (edge_mask, node_mask)
@@ -109,6 +109,12 @@ class StateBatch:
                 dtype=np.int32,
             ),
         }
+        
+        # Who let a sentence with only one word here???
+        for i in range(self.batch_size):
+            if self._data['num_words'][i] == 1:
+                self._data['adjacency'][i, 0, 1] = 1
+                self._data['labels'][i, 1] = 1
 
     def __len__(self):
         return len(
@@ -134,21 +140,21 @@ class StateBatch:
     def step(self, node_ids, prev_node_ids, actions=None):
         masks = self.__getitem__("masks")
         num_words = self.__getitem__("num_words")
-        dones = check_done(masks, num_words)
+        edge_dones, node_dones = check_done(masks, num_words)
         batch_ids = np.arange(self.batch_size)
 
-        masks[1][batch_ids, node_ids] = False
+        masks[1][batch_ids[~node_dones], node_ids[~node_dones]] = False
         self._data["masks"][1] = masks[1]
 
         if actions is None:
             return 0
 
-        masks[0][batch_ids, prev_node_ids] = True
-        masks[0][batch_ids, 0] = False  # Ensure no outcoming edge from ROOT
+        masks[0][batch_ids[~edge_dones], prev_node_ids[~edge_dones]] = True
+        masks[0][batch_ids[~edge_dones], 0] = False  # Ensure no outcoming edge from ROOT
         self._data["masks"][0] = masks[0]
         actions = actions.squeeze(-1)
-        self._data["adjacency"][batch_ids[~dones], actions[~dones], prev_node_ids[~dones]] = 1
-        self._data["labels"][batch_ids, prev_node_ids] = 1
+        self._data["adjacency"][batch_ids[~edge_dones], actions[~edge_dones], prev_node_ids[~edge_dones]] = 1
+        self._data["labels"][batch_ids[~edge_dones], prev_node_ids[~edge_dones]] = 1
 
         return 1
 
