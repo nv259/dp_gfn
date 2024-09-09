@@ -14,9 +14,13 @@ def parse_token_tree(
     edges = []
 
     current_index = current_node.token["id"]
-    edges.append((parent_index, current_index, current_node.token["deprel"]))
-    tokens[current_index] = current_node.token["form"]
-
+    
+    if type(current_index) == int:
+        edges.append((parent_index, current_index, current_node.token["deprel"]))
+        tokens[current_index] = current_node.token["form"]
+    else: 
+        raise Exception("Token id is not an integer")
+        
     if current_node.children == 0:
         return edges
 
@@ -205,4 +209,4 @@ def get_dataloader(
     if is_train:
         return dataloader, dataset.num_tags, dataset.max_num_nodes
     else:
-        return dataloader
+        return dataloader, dataset.id_rel
