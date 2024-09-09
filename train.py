@@ -22,7 +22,7 @@ def main(config):
     config = DictConfig(config)
 
     logging.info("Loading Data")
-    train_loader, num_tags, max_num_nodes = get_dataloader(
+    train_loader, num_tags, max_num_nodes, id2rel = get_dataloader(
         path_to_conllu_file=config.train_path,
         max_number_of_words=config.max_number_of_words,
         batch_size=config.batch_size,
@@ -49,7 +49,7 @@ def main(config):
         logging.warning("No validation data found")
 
     logging.info("Initializing Algorithm")
-    algorithm = DPGFN(config=config, num_tags=num_tags)
+    algorithm = DPGFN(config=config, num_tags=num_tags, id2rel=id2rel)
 
     algorithm.train(train_loader=train_loader, val_loader=val_loader)
 
