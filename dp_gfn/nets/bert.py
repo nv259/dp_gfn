@@ -69,7 +69,7 @@ class Embeddings(hk.Module):
 
         if training: 
             embeddings = hk.dropout(
-                hk.next_rng_key(), rate=self.config["hidden_dropout_prob"]
+                hk.next_rng_key(), rate=self.config["hidden_dropout_prob"], x=embeddings
             )
 
         return embeddings
@@ -308,7 +308,7 @@ class Attention(hk.Module):
                 rng=hk.next_rng_key(),
                 rate=self.config["attention_probs_dropout_prob"],
                 x=attention_output,
-            )(attention_output)
+            )
 
         # Add & Norm
         attention_output = attention_output + x
