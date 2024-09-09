@@ -90,9 +90,9 @@ def log_policy(logits, masks):
 
 
 def gflownet_forward_fn(
-    x, node_id, labels, masks, num_tags, num_layers, num_heads, key_size
+    x, node_id, labels, masks, num_tags, num_layers, num_heads, key_size, model_size=None
 ):
-    model_size = x.shape[-1]
+    # model_size = x.shape[-1]
     num_variables = int(x.shape[0])
 
     log_pi, next_node_logits = DPGFlowNet(
