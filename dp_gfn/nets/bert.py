@@ -392,12 +392,10 @@ class BertModel(hk.Module):
 
 
 def get_bert_token_embeddings_fn(
-    model_size, input_ids, token_type_ids, attention_mask, training=False
+    input_ids, token_type_ids, attention_mask, training=False
 ):
     token_embeddings = BertModel(CONFIG)(
         input_ids, token_type_ids, attention_mask, training=training
     )
     
-    token_embeddings = DenseBlock(output_size=model_size, init_scale=2./12.)(token_embeddings)
-
     return token_embeddings
