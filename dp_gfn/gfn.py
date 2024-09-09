@@ -3,6 +3,7 @@ from collections import namedtuple
 
 import numpy as np
 from tqdm import trange
+from evaluation import save_predictions
 
 import haiku as hk
 import jax
@@ -17,6 +18,8 @@ from dp_gfn.utils.pretrains import \
 from jax import grad, jit, vmap
 from torch.utils.data import DataLoader
 from transformers import AutoConfig, AutoTokenizer
+import subprocess
+
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 GFlowNetState = namedtuple("GFlowNetState", ["optimizer", "step"])
@@ -24,10 +27,11 @@ GFlowNetParams = namedtuple("GFlowNetParams", ["bert", "gflownet", "Z"])
 
 
 class DPGFN:
-    def __init__(self, config, num_tags, pretrained_path=None):
+    def __init__(self, config, num_tags, id2rel, pretrained_path=None):
         super().__init__()
         self.config = config
         self.num_tags = num_tags
+        self.id2rel = id2rel
 
         self.initialize_vars()
 
@@ -37,9 +41,7 @@ class DPGFN:
 
         # Initalizer
         bert.init(self.config.model.pref_encoder.pretrained_path)
-        self.bert_model = hk.without_apply_rng(
-            hk.transform(bert.get_bert_token_embeddings_fn)
-        )
+        self.bert_model = hk.transform(bert.get_bert_token_embeddings_fn)
         self.bert_params = self.bert_model.init(
             self.key,
             jnp.ones(
@@ -63,6 +65,7 @@ class DPGFN:
                 ),
                 dtype=jnp.int32,
             ),
+            True
         )
 
         # Backbone
@@ -147,10 +150,11 @@ class DPGFN:
         self.gflownet_optimizer = optax.adam(gflownet_lr)
         self.gflownet_state = self.gflownet_optimizer.init(self.gflownet_params)
 
-    def init_states(self, bert_params, tokens):
+    def init_states(self, bert_params, tokens, training=False):
+        self.key, bert_key = jax.random.split(self.key)
         # Present initial state (s0) as a set of node_embeddings
-        token_embeddings = jit(self.bert_model.apply)(
-            bert_params, **tokens
+        token_embeddings = jit(self.bert_model.apply, static_argnums=(5, ))(
+            bert_params, bert_key, **tokens, training=training
         )  
         
         node_embeddings = batch_token_embeddings_to_batch_word_embeddings(  # TODO: Inspect the others (first, last)
@@ -175,7 +179,7 @@ class DPGFN:
         golds,
         delta
     ):
-        node_embeddings, sentence_embeddings = self.init_states(bert_params, tokens)
+        node_embeddings, sentence_embeddings = self.init_states(bert_params, tokens, training=True)
         
         log_Z = jit(self.Z)(Z_params, sentence_embeddings).squeeze(axis=-1)
         
@@ -277,13 +281,6 @@ class DPGFN:
         ))
 
         with trange(self.max_steps, desc="Training") as pbar:
-            # not trained
-            io.save(os.path.join(save_folder, f"untrained.npz"),
-                    bert=self.bert_params,
-                    gflownet=self.gflownet_params,
-                    Z=self.Z_params) 
-            print("save untrained parameters")
-
             for iteration in pbar:
                 delta = exploration_schedule(iteration)
                 batch = next(train_loader)
@@ -297,7 +294,6 @@ class DPGFN:
                 )
 
                 (bert_grads, gflownet_grads, Z_grads), logs = grad(
-                # (gflownet_grads, Z_grads), logs = grad(
                     self.loss, argnums=(0, 1, 2), has_aux=True)(
                     self.bert_params,
                     self.gflownet_params,
@@ -321,6 +317,11 @@ class DPGFN:
                 self.Z_params = optax.apply_updates(self.Z_params, Z_updates)
 
                 if iteration % self.eval_every_n == 0:
+                    gold = os.path.join(save_folder, f"gold_{iteration}.conllu")
+                    system = os.path.join(save_folder, f"system_{iteration}.conllu")
+                    save_predictions(algorithm=self, loader=val_loader, config=self.config, id2rel=self.id2rel, original=self.config.train_path.replace("train", "dev"), gold=gold, system=system)
+                    subprocess.run(['./ud_eval.py', gold, system, '-v'])
+                    
                     val_loss = self.val_step(val_loader)
                     val_losses.append(val_loss)
                     
@@ -387,7 +388,7 @@ class DPGFN:
         return np.mean(losses)
 
     def inference(self, tokens, num_words_list, delta=0.):
-        node_embeddings, sentence_embeddings = self.init_states(self.bert_params, tokens)
+        node_embeddings, sentence_embeddings = self.init_states(self.bert_params, tokens, training=False)
         traj_log_pF, traj_log_pB, complete_states = self.sample(
             self.gflownet_params, node_embeddings, num_words_list, delta=delta
         )
