@@ -27,17 +27,17 @@ def main(config):
         max_number_of_words=config.max_number_of_words,
         batch_size=config.batch_size,
         num_workers=config.num_workers,
-        shuffle=False,
+        shuffle=True,
         is_train=True,
     )
     config.model.num_variables = max_num_nodes
-    
+    config.max_number_of_words = max_num_nodes - 1 
     print(OmegaConf.to_yaml(config))
     with open("hydra_config.txt", "w") as f:
         f.write(OmegaConf.to_yaml(config))
         
     try:
-        val_loader = get_dataloader(
+        val_loader, _ = get_dataloader(
             path_to_conllu_file=config.train_path.replace("train", "dev"),
             max_number_of_words=max_num_nodes,
             batch_size=config.batch_size,
@@ -47,8 +47,6 @@ def main(config):
     except:
         val_loader = None
         logging.warning("No validation data found")
-
-    logging.info("Initializing Model")
 
     logging.info("Initializing Algorithm")
     algorithm = DPGFN(config=config, num_tags=num_tags)
