@@ -207,6 +207,6 @@ def get_dataloader(
     )
 
     if is_train:
-        return dataloader, dataset.num_tags, dataset.max_num_nodes
+        return dataloader, dataset.num_tags, dataset.max_num_nodes, dataset.id_rel
     else:
         return dataloader, dataset.id_rel
