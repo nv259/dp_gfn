@@ -42,6 +42,10 @@ class LinearTransformerBlock(hk.Module):
 
     def __call__(self, x, labels):
         w_init = hk.initializers.VarianceScaling(self.init_scale)
+        
+        # mapping to model_size at first layer
+        if x.shape[-1] != self.model_size:
+            x = hk.Linear(self.model_size, w_init=w_init)(x)
 
         arc_keys = hk.Embed(self.num_tags, self.model_size, w_init=w_init)(labels)
         arc_values = hk.Embed(self.num_tags, self.model_size, w_init=w_init)(labels)
