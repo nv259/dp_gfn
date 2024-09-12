@@ -88,7 +88,7 @@ def collate_nx_graphs(batch):
 
 def np_collate_fn(batch):
     graphs = [item["graph"] for item in batch]
-    text = ["[CLS] " + item["text"] for item in batch]
+    text = [item["text"] for item in batch]
     num_words = [
         item["num_words"] for item in batch
     ]  # TODO: ascertain num_words already contains ROOT
@@ -139,7 +139,7 @@ class BaseDataset(Dataset):
                   
                 self.data.append(
                     {
-                        "text": joined_words,
+                        "text": "[CLS] " + joined_words,
                         "edges": edges_list,
                         "num_words": len(words_list),
                     }
