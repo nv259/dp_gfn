@@ -139,7 +139,7 @@ class BaseDataset(Dataset):
                   
                 self.data.append(
                     {
-                        "text": "[CLS] " + joined_words,
+                        "text": "<s> " + joined_words,
                         "edges": edges_list,
                         "num_words": len(words_list),
                     }
