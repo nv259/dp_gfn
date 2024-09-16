@@ -11,7 +11,7 @@ common:
 
 pref_encoder:
     _target_: dp_gfn.nets.initial_encoders.PrefEncoder
-    pretrained_path: google-bert/bert-base-uncased
+    pretrained_path: FacebookAI/xlm-roberta-base
     trainable: False
     agg_func: ${model.common.agg_func}
     max_word_length: ${max_number_of_words}

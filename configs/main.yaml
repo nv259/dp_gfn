@@ -28,11 +28,18 @@ model:
     # output_Z:
         # _partial_: True
 
+algorithm:
+    train:
+        eval_every_n: 500
+    eval:
+        batch_size: 32
+    
 train_path: ./data/ud-treebanks-v2.14/UD_English-Atis/en_atis-ud-train.conllu
 save_path: ./output/
-batch_size: 8
-num_workers: 4
-max_number_of_words: 100
+batch_size: 16
+num_workers: 8
+max_number_of_words: 100    # equal to max_number of node in train mode
 init_label_embeddings: False
 seed: 42
 device: cuda
+num_tags: 53
