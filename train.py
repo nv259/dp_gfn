@@ -40,7 +40,7 @@ def main(config):
         val_loader, _ = get_dataloader(
             path_to_conllu_file=config.train_path.replace("train", "dev"),
             max_number_of_words=max_num_nodes,
-            batch_size=config.batch_size,
+            batch_size=config.algorithm.eval.batch_size,
             num_workers=config.num_workers,
             shuffle=False,
         )
