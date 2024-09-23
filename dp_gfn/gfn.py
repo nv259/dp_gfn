@@ -3,7 +3,10 @@ from collections import namedtuple
 
 import numpy as np
 from tqdm import trange
-from evaluation import save_predictions
+try:
+    from evaluation import save_predictions
+except:
+    pass
 
 import haiku as hk
 import jax
@@ -109,6 +112,7 @@ class DPGFN:
         self.agg_func = self.config.model.pref_encoder.agg_func
 
         config = self.config.algorithm
+        self.reward_scale_factor = config.reward_scale_factor
 
         # train hyperparameters
         config = config.train
@@ -177,7 +181,7 @@ class DPGFN:
         # Compute reward: # TODO: inspect other metrics?
         golds = (golds != 0).astype(bool)
         log_R = jnp.log(jnp.exp(1. - jit(scores.frobenius_norm_distance)(
-            complete_states["adjacency"], golds)))
+            complete_states["adjacency"], golds)) * self.reward_scale_factor)
 
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
     
@@ -259,7 +263,8 @@ class DPGFN:
         # train_loader = iter(train_loader)
         train_loader = cycle(train_loader)
         train_losses, val_losses = [], []
-        
+        train_loss, val_loss = 0, 0
+         
         exploration_schedule = jax.jit(optax.linear_schedule(
             init_value=jnp.array(self.exploration_rate),
             end_value=jnp.array(self.exploration_rate / 10.),

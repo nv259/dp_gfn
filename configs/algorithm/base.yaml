@@ -2,7 +2,7 @@ train:
     n_grad_accumulation_steps: 4    # not yet implemented
     max_steps: 100000
     eval_on_train: False
-    exploration_rate: 0.005
+    exploration_rate: 0.05
     stimulated_annealing: False     # not yet implemented
     clip_grad: 10   # not yet implemented
 
@@ -28,3 +28,5 @@ train:
 
     backward_policy: null   # fix uniform by default
     score_fn: null          # graph edit distance by default
+eval:
+    batch_size: 32
