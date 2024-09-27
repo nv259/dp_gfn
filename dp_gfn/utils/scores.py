@@ -1,8 +1,12 @@
 import jax.numpy as jnp
-from jax import vmap
+from jax import vmap, jit
 from functools import partial
 
 
+def reward(predict, gold, graph_distance_fn):
+    return jnp.exp(1.0 - graph_distance_fn(predict, gold))
+    
+    
 def unlabeled_graph_edit_distance(predict, gold):
     # Retain edges only
     predict = predict.astype(bool)
@@ -65,3 +69,8 @@ def spectral_distance(A, B):
     denominator = jnp.sqrt(jnp.linalg.norm(eigenvalues_A)**2 + jnp.linalg.norm(eigenvalues_B)**2)
     
     return numerator / denominator
+
+
+@partial(jit, )
+def scale_between(inputs, original_min, original_max, scaled_min, scaled_max):
+    return (scaled_max - scaled_min) * (inputs - original_min) / (original_max - original_min) + scaled_min
