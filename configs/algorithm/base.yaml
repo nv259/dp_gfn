@@ -30,3 +30,5 @@ train:
     score_fn: null          # graph edit distance by default
 eval:
     batch_size: 32
+
+reward_scale_factor: 10

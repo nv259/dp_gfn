@@ -34,6 +34,8 @@ algorithm:
     train:
         eval_every_n: 500
         exploration_rate: 0.05
+
+        save_every_n: 1000
     eval:
         batch_size: 32
     
