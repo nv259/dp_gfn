@@ -180,8 +180,15 @@ class DPGFN:
        
         # Compute reward: # TODO: inspect other metrics?
         golds = (golds != 0).astype(bool)
-        log_R = jnp.log(jnp.exp(1. - jit(scores.frobenius_norm_distance)(
-            complete_states["adjacency"], golds)) * self.reward_scale_factor)
+        log_R = jnp.log(
+            scores.scale_between(
+                inputs=scores.reward(complete_states["adjacency"], golds, scores.frobenius_norm_distance),
+                original_min=1, 
+                original_max=jnp.exp(1),
+                scaled_min=3,
+                scaled_max=10
+            )
+        )
 
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
     
@@ -214,7 +221,7 @@ class DPGFN:
         actions = None
 
         traj_log_pF = jnp.zeros((len(num_words_list),), dtype=jnp.float32)
-        traj_log_pB = jnp.zeros((len(num_words_list)), dtype=jnp.float32)
+        traj_log_pB = jnp.zeros((len(num_words_list),), dtype=jnp.float32)
 
         for t in range(self.num_variables):
             edge_dones, node_dones = masking.check_done(states["masks"], states["num_words"])
@@ -340,6 +347,7 @@ class DPGFN:
                     pbar.set_postfix(
                         epsilon=f"{self.exploration_rate:.6f}",
                         loss=f"{logs['loss']:.6f}", 
+                        reward=f"{np.exp(logs['log_R']):.6f}",
                         train_loss=f"{train_loss:.6f}",
                         val_loss=f"{val_loss:.6f}"
                     )
@@ -347,6 +355,7 @@ class DPGFN:
                     pbar.set_postfix(
                         epsilon=f"{self.exploration_rate:.6f}",
                         loss=f"{logs['loss']:.6f}", 
+                        reward=f"{np.exp(logs['log_R']):.6f}",
                         val_loss=f"{val_loss:.6f}"
                     )
                 train_losses.append(logs['loss'])
@@ -418,6 +427,7 @@ def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1):
     logs = {
         "error": error,
         "loss": loss,
+        "log_R": log_R.mean().item()
     }
 
     return (loss, logs)
