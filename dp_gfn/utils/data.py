@@ -14,9 +14,13 @@ def parse_token_tree(
     edges = []
 
     current_index = current_node.token["id"]
-    edges.append((parent_index, current_index, current_node.token["deprel"]))
-    tokens[current_index] = current_node.token["form"]
-
+    
+    if type(current_index) == int:
+        edges.append((parent_index, current_index, current_node.token["deprel"]))
+        tokens[current_index] = current_node.token["form"]
+    else: 
+        raise Exception("Token id is not an integer")
+        
     if current_node.children == 0:
         return edges
 
@@ -84,7 +88,7 @@ def collate_nx_graphs(batch):
 
 def np_collate_fn(batch):
     graphs = [item["graph"] for item in batch]
-    text = ["[CLS] " + item["text"] for item in batch]
+    text = [item["text"] for item in batch]
     num_words = [
         item["num_words"] for item in batch
     ]  # TODO: ascertain num_words already contains ROOT
@@ -135,7 +139,7 @@ class BaseDataset(Dataset):
                   
                 self.data.append(
                     {
-                        "text": joined_words,
+                        "text": "<s> " + joined_words,
                         "edges": edges_list,
                         "num_words": len(words_list),
                     }
@@ -199,9 +203,10 @@ def get_dataloader(
         shuffle=shuffle,
         collate_fn=collate_nx_graphs if store_nx_graph else np_collate_fn,
         num_workers=num_workers,
+        drop_last=True
     )
 
     if is_train:
-        return dataloader, dataset.num_tags, dataset.max_num_nodes
+        return dataloader, dataset.num_tags, dataset.max_num_nodes, dataset.id_rel
     else:
-        return dataloader
+        return dataloader, dataset.id_rel

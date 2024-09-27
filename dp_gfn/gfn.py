@@ -1,9 +1,12 @@
 import os
-import io
 from collections import namedtuple
 
 import numpy as np
 from tqdm import trange
+try:
+    from evaluation import save_predictions
+except:
+    pass
 
 import haiku as hk
 import jax
@@ -12,12 +15,14 @@ import optax
 from dp_gfn.nets import bert
 from dp_gfn.nets.gflownet import gflownet_forward_fn, output_total_flow_fn
 from dp_gfn.nets.initial_encoders import label_score_fn
-from dp_gfn.utils import masking, scores
+from dp_gfn.utils import masking, scores, io
 from dp_gfn.utils.pretrains import \
-    batch_token_embeddings_to_batch_word_embeddings
+    batch_token_embeddings_to_batch_word_embeddings, create_position_ids_from_input_ids
 from jax import grad, jit, vmap
 from torch.utils.data import DataLoader
 from transformers import AutoConfig, AutoTokenizer
+import subprocess
+
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 GFlowNetState = namedtuple("GFlowNetState", ["optimizer", "step"])
@@ -25,10 +30,11 @@ GFlowNetParams = namedtuple("GFlowNetParams", ["bert", "gflownet", "Z"])
 
 
 class DPGFN:
-    def __init__(self, config, num_tags):
+    def __init__(self, config, num_tags, id2rel, pretrained_path=None):
         super().__init__()
         self.config = config
         self.num_tags = num_tags
+        self.id2rel = id2rel
 
         self.initialize_vars()
 
@@ -37,34 +43,17 @@ class DPGFN:
         )
 
         # Initalizer
+        dummy_input_ids = jnp.ones((self.batch_size, self.tokenizer.model_max_length), dtype=jnp.int32)
+
         bert.init(self.config.model.pref_encoder.pretrained_path)
-        self.bert_model = hk.without_apply_rng(
-            hk.transform(bert.get_bert_token_embeddings_fn)
-        )
+        self.bert_model = hk.transform(bert.get_bert_token_embeddings_fn)
         self.bert_params = self.bert_model.init(
             self.key,
-            self.model_size,
-            jnp.ones(
-                (
-                    self.batch_size,
-                    self.bert_config["max_position_embeddings"],
-                ),
-                dtype=jnp.int32,
-            ),
-            jnp.ones(
-                (
-                    self.batch_size,
-                    self.bert_config["max_position_embeddings"],
-                ),
-                dtype=jnp.int32,
-            ),
-            jnp.ones(
-                (
-                    self.batch_size,
-                    self.bert_config["max_position_embeddings"],
-                ),
-                dtype=jnp.int32,
-            ),
+            dummy_input_ids,
+            jnp.ones_like(dummy_input_ids),
+            jnp.zeros_like(dummy_input_ids),
+            jnp.ones_like(dummy_input_ids),
+            True
         )
 
         # Backbone
@@ -72,7 +61,7 @@ class DPGFN:
         base_masks = masking.base_masks(self.num_variables, self.num_variables)
         self.gflownet_params = self.gflownet.init(
             self.key,
-            jnp.ones((self.num_variables, self.model_size)),
+            jax.random.normal(self.key, (self.num_variables, self.bert_config['hidden_size'])),
             jnp.array(1, dtype=jnp.int32),
             np.zeros((self.num_variables,), dtype=np.int32),
             base_masks,
@@ -86,7 +75,7 @@ class DPGFN:
         )
 
         self.Z = hk.without_apply_rng(hk.transform(output_total_flow_fn))
-        self.Z_params = self.Z.init(self.key, jnp.ones((self.model_size,)))
+        self.Z_params = self.Z.init(self.key, jnp.ones((self.bert_config['hidden_size'],)))
         self.Z = vmap(self.Z.apply, in_axes=(None, 0))
 
         # TODO: Tags predictor
@@ -100,6 +89,9 @@ class DPGFN:
         # self.label_scorer = vmap(self.label_scorer.apply, in_axes=(None, 0, 0, None))
 
         self.init_policy()
+        
+        if pretrained_path is not None:
+            self.load_weights(pretrained_path)
 
     def initialize_vars(self):
         self.key = jax.random.PRNGKey(self.config.seed)
@@ -120,6 +112,7 @@ class DPGFN:
         self.agg_func = self.config.model.pref_encoder.agg_func
 
         config = self.config.algorithm
+        self.reward_scale_factor = config.reward_scale_factor
 
         # train hyperparameters
         config = config.train
@@ -129,6 +122,7 @@ class DPGFN:
         self.exploration_rate = config.exploration_rate
         self.clip_grad = config.clip_grad
         self.eval_every_n = config.eval_every_n
+        self.save_every_n = config.save_every_n
 
     def init_policy(self):
         self.model = hk.without_apply_rng(hk.transform(GFlowNetState))
@@ -145,33 +139,39 @@ class DPGFN:
         self.gflownet_optimizer = optax.adam(gflownet_lr)
         self.gflownet_state = self.gflownet_optimizer.init(self.gflownet_params)
 
+    def init_states(self, bert_params, tokens, position_ids, training=False):
+        self.key, bert_key = jax.random.split(self.key)
+        # Present initial state (s0) as a set of node_embeddings
+        token_embeddings = jit(self.bert_model.apply, static_argnums=(6, ))(
+            bert_params, bert_key, tokens['input_ids'], position_ids, jnp.zeros_like(tokens['input_ids']), tokens['attention_mask'], training=training
+        )  
+        
+        node_embeddings = batch_token_embeddings_to_batch_word_embeddings(  # TODO: Inspect the others (first, last)
+            tokens=tokens, 
+            token_embeddings=token_embeddings,
+            agg_func=self.agg_func,
+            max_word_length=self.num_variables
+        )   # TODO: Find another way that allow parallelization -> JIT
+        
+        # Embeddings for computing intitial flow 
+        sentence_embeddings = token_embeddings.mean(1)  # TODO: Using sentence embeddings might be plain 
+        
+        return node_embeddings, sentence_embeddings
+
     def loss(
         self,
         bert_params,
         gflownet_params,
         Z_params,
         tokens,
+        position_ids,
         num_words_list,
         golds,
         delta
     ):
-        # Initialize state embeddings
-        token_embeddings = jit(self.bert_model.apply, static_argnums=(1,))(
-            bert_params, self.model_size, **tokens
-        )
+        node_embeddings, sentence_embeddings = self.init_states(bert_params, tokens, position_ids, training=True)
         
-        # Compute initial state flow log(Z)
-        sentence_embeddings = token_embeddings.mean(1)  # TODO: Maybe using sentence embeddings 
-                                                            # to predict total flow Z is kinda plain?
         log_Z = jit(self.Z)(Z_params, sentence_embeddings).squeeze(axis=-1)
-        
-        # Aggregate token embeddings into word embeddings 
-        node_embeddings = batch_token_embeddings_to_batch_word_embeddings(  # TODO: How bout choosing first tokens?
-            tokens=tokens,
-            token_embeddings=token_embeddings,
-            agg_func=self.agg_func,
-            max_word_length=self.num_variables,
-        )   # TODO: Find a way that allow parallelization -> JIT
         
         # Sample trajectory $\tau = (s_0 -> s_1 -> ... -> s_n)$
         traj_log_pF, traj_log_pB, complete_states = self.sample(
@@ -179,28 +179,57 @@ class DPGFN:
         )
        
         # Compute reward: # TODO: inspect other metrics?
-        log_R = jnp.log(jit(
-            scores.unlabeled_graph_edit_distance)(complete_states["adjacency"], golds))
+        golds = (golds != 0).astype(bool)
+        log_R = jnp.log(
+            scores.scale_between(
+                inputs=scores.reward(complete_states["adjacency"], golds, scores.frobenius_norm_distance),
+                original_min=1, 
+                original_max=jnp.exp(1),
+                scaled_min=3,
+                scaled_max=10
+            )
+        )
 
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
+    
+    def sample_action(self, log_pi, masks, delta):
+        self.key, subkey1, subkey2 = jax.random.split(self.key, 3)
+        
+        # Exploration: Sample action uniformly at random
+        log_uniform = masking.uniform_log_policy(masks)
+        is_exploration = jax.random.bernoulli(
+            subkey1, p=delta, shape=(len(log_pi), 1)
+        )  # TODO: stimulated annealing
 
+        # Mixing GFlowNet policy and uniform policy:
+        # \pi = (1 - delta) * Policy + delta * Uniform
+        log_pi = jnp.where(is_exploration, log_uniform, log_pi)
+
+        # Sample actions
+        actions = masking.batch_random_choice(
+            subkey2, jnp.exp(log_pi), masks
+        )
+
+        log_pF = jnp.take_along_axis(log_pi, actions, axis=1).squeeze(-1)
+        log_pB = masking.uniform_log_policy(masks, is_forward=False)
+
+        return actions, log_pF, log_pB
+        
     def sample(self, gflownet_params, node_embeddings, num_words_list, delta=0.001):
-        states = masking.StateBatch(self.batch_size, self.num_variables, num_words_list)
-        node_ids = jnp.zeros((self.batch_size,), dtype=jnp.int32)
+        states = masking.StateBatch(self.num_variables, num_words_list)
+        node_ids = jnp.zeros((len(num_words_list),), dtype=jnp.int32)
         actions = None
 
-        traj_log_pF = jnp.zeros((self.batch_size,), dtype=jnp.float32)
-        traj_log_pB = jnp.zeros((self.batch_size,), dtype=jnp.float32)
+        traj_log_pF = jnp.zeros((len(num_words_list),), dtype=jnp.float32)
+        traj_log_pB = jnp.zeros((len(num_words_list),), dtype=jnp.float32)
 
         for t in range(self.num_variables):
-            self.key, subkey1, subkey2 = jax.random.split(self.key, 3)
-
-            dones = masking.check_done(states["masks"], states["num_words"])
-            if np.all(dones):
+            edge_dones, node_dones = masking.check_done(states["masks"], states["num_words"])
+            if np.all(edge_dones):
                 break
 
             # Exploitation: Sample action based on GFlowNet policy
-            log_pi, next_node_logits = jit(self.gflownet, static_argnums=(5, 6, 7, 8))(
+            log_pi_t, log_node_tp1 = jit(self.gflownet, static_argnums=(5, 6, 7, 8))(
                 gflownet_params,
                 node_embeddings,
                 node_ids,
@@ -212,37 +241,23 @@ class DPGFN:
                 self.key_size,
             )
 
-            next_node_ids = next_node_logits.argmax(axis=-1)
+            next_node_ids, log_pF_node, log_pB_node = self.sample_action(log_node_tp1, states['masks'][1], delta)
+            log_pF_node = jnp.where(node_dones, jnp.zeros_like(log_pF_node), log_pF_node)
+            traj_log_pF += log_pF_node * (1 - node_dones)
+            log_pB_node = jnp.where(node_dones, jnp.zeros_like(log_pB_node), log_pB_node)
+            traj_log_pB += log_pB_node * (1 - node_dones) # log_pB_node = inf if node_done 
 
             # Only sample next node at step 0
             # TODO: JIT here?
             if t != 0:
-                # Exploration: Sample action uniformly at random
-                log_uniform = masking.uniform_log_policy(masks=states["masks"][0])
-                is_exploration = jax.random.bernoulli(
-                    subkey1, p=delta, shape=(self.batch_size, 1)
-                )  # TODO: stimulated annealing
-
-                # Mixing GFlowNet policy and uniform policy:
-                # \pi = (1 - delta) * Policy + delta * Uniform
-                log_pi = jnp.where(is_exploration, log_uniform, log_pi)
-
-                # Sample actions
-                actions = masking.batch_random_choice(
-                    subkey2, jnp.exp(log_pi), states["masks"]
-                )
-
-                log_probs = jnp.take_along_axis(log_pi, actions, axis=1).squeeze(-1)
-                traj_log_pF += log_probs * (1 - dones)
-                 
-                traj_log_pB += masking.uniform_log_policy(
-                    states["masks"][0],
-                    is_forward=False,
-                ) * (1 - dones)  # Uniform backward policy
-
+                actions, log_pF, log_pB = self.sample_action(log_pi_t, states['masks'][0], delta)
+                traj_log_pF += log_pF * (1 - edge_dones)
+                traj_log_pB += log_pB * (1 - edge_dones)  
+            
             # Move to the next state
+            next_node_ids = next_node_ids.squeeze(-1)
             states.step(node_ids=next_node_ids, prev_node_ids=node_ids, actions=actions)
-            node_ids = next_node_ids
+            node_ids = next_node_ids    # num_word = 1 => edge_dones at step 0
 
         return traj_log_pF, traj_log_pB, states
 
@@ -252,8 +267,11 @@ class DPGFN:
             f"run_bs={self.batch_size}_epsilon={self.exploration_rate}_dim={self.model_size}_nlayers={self.num_layers}_nheads={self.num_heads}")
         os.makedirs(save_folder, exist_ok=True)
         
+        # train_loader = iter(train_loader)
+        train_loader = cycle(train_loader)
         train_losses, val_losses = [], []
-        
+        train_loss, val_loss = 0, 0
+         
         exploration_schedule = jax.jit(optax.linear_schedule(
             init_value=jnp.array(self.exploration_rate),
             end_value=jnp.array(self.exploration_rate / 10.),
@@ -264,8 +282,8 @@ class DPGFN:
         with trange(self.max_steps, desc="Training") as pbar:
             for iteration in pbar:
                 delta = exploration_schedule(iteration)
-                batch = next(iter(train_loader))
-
+                batch = next(train_loader)
+                 
                 tokens = self.tokenizer(
                     batch["text"],
                     return_tensors="jax",
@@ -273,6 +291,8 @@ class DPGFN:
                     truncation=True,
                     add_special_tokens=False,
                 )
+                
+                position_ids = create_position_ids_from_input_ids(tokens["input_ids"])
 
                 (bert_grads, gflownet_grads, Z_grads), logs = grad(
                     self.loss, argnums=(0, 1, 2), has_aux=True)(
@@ -280,6 +300,7 @@ class DPGFN:
                     self.gflownet_params,
                     self.Z_params,
                     tokens,
+                    position_ids,
                     batch["num_words"],
                     batch["graph"],
                     delta
@@ -298,12 +319,23 @@ class DPGFN:
                 self.Z_params = optax.apply_updates(self.Z_params, Z_updates)
 
                 if iteration % self.eval_every_n == 0:
-                    val_loss = self.val_step(val_loader)
-                    val_losses.append(val_loss)
+                    gold = os.path.join(save_folder, f"gold_{iteration}.conllu")
+                    system = os.path.join(save_folder, f"system_{iteration}.conllu")
+                    save_predictions(algorithm=self, loader=val_loader, config=self.config, id2rel=self.id2rel, original=self.config.train_path.replace("train", "dev"), gold=gold, system=system)
+                    subprocess.run(['./ud_eval.py', gold, system, '-v'])
                     
+                    val_loss = self.val_step(val_loader)
+                    print('loss on val:', val_loss)
+                    if len(train_losses):
+                        print('loss on train:', sum(train_losses) / len(train_losses))
+                    train_losses = []
+                    val_losses.append(val_loss)
+
                     if self.eval_on_train:
                         train_loss = self.val_step(train_loader) 
                         train_losses.append(train_loss)
+                    
+                    print("-"*50)
                 
                 if iteration % self.save_every_n == 0:
                     io.save(os.path.join(save_folder, f"model_{iteration}.npz"),
@@ -313,17 +345,20 @@ class DPGFN:
                  
                 if self.eval_on_train: 
                     pbar.set_postfix(
-                        epsilon=f"{self.exploration_rate:.2f}",
-                        loss=f"{logs['loss']:.2f}", 
-                        train_loss=f"{train_loss:.2f}",
-                        val_loss=f"{val_loss:.2f}"
+                        epsilon=f"{self.exploration_rate:.6f}",
+                        loss=f"{logs['loss']:.6f}", 
+                        reward=f"{np.exp(logs['log_R']):.6f}",
+                        train_loss=f"{train_loss:.6f}",
+                        val_loss=f"{val_loss:.6f}"
                     )
                 else:
                     pbar.set_postfix(
-                        epsilon=f"{self.exploration_rate:.2f}",
-                        loss=f"{logs['loss']:.2f}", 
-                        val_loss=f"{val_loss:.2f}"
+                        epsilon=f"{self.exploration_rate:.6f}",
+                        loss=f"{logs['loss']:.6f}", 
+                        reward=f"{np.exp(logs['log_R']):.6f}",
+                        val_loss=f"{val_loss:.6f}"
                     )
+                train_losses.append(logs['loss'])
             
         # Save model parameters
         io.save(os.path.join(save_folder, "model.npz"), 
@@ -336,7 +371,7 @@ class DPGFN:
     def val_step(
         self,
         val_loader,
-        delta=0
+        delta=0.
     ):
         losses = []
         
@@ -349,11 +384,14 @@ class DPGFN:
                 add_special_tokens=False,
             )
             
+            position_ids = create_position_ids_from_input_ids(tokens['input_ids'])
+            
             (loss, _) = self.loss(
                 self.bert_params, 
                 self.gflownet_params, 
                 self.Z_params, 
                 tokens, 
+                position_ids,
                 batch["num_words"], 
                 batch["graph"], 
                 delta=delta
@@ -362,9 +400,25 @@ class DPGFN:
         
         return np.mean(losses)
 
+    def inference(self, tokens, position_ids, num_words_list, delta=0.):
+        node_embeddings, sentence_embeddings = self.init_states(self.bert_params, tokens, position_ids, training=False)
+        traj_log_pF, traj_log_pB, complete_states = self.sample(
+            self.gflownet_params, node_embeddings, num_words_list, delta=delta
+        )
+        log_Z = jit(self.Z)(self.Z_params, sentence_embeddings).squeeze(axis=-1)
+        log = (log_Z, traj_log_pF, traj_log_pB) 
+        
+        return complete_states, log
+    
+    def load_weights(self, filename):
+        params = io.load(filename)
+        
+        self.bert_params = params['bert']
+        self.gflownet_params = params['gflownet']
+        self.Z_params = params['Z']
+     
 
 def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1): 
-    
     assert log_Z.shape == traj_log_pF.shape == traj_log_pB.shape == log_R.shape
      
     error = log_Z + traj_log_pF - log_R - traj_log_pB
@@ -373,6 +427,15 @@ def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1):
     logs = {
         "error": error,
         "loss": loss,
+        "log_R": log_R.mean().item()
     }
 
     return (loss, logs)
+
+
+def cycle(dataloader):
+    while True:
+        for batch in dataloader: 
+            yield batch
+            
+            

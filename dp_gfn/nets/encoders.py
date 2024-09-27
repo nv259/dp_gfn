@@ -41,10 +41,14 @@ class LinearTransformerBlock(hk.Module):
         self.num_tags = num_tags
 
     def __call__(self, x, labels):
-        # w_init = hk.initializers.VarianceScaling(self.init_scale)
+        w_init = hk.initializers.VarianceScaling(self.init_scale)
+        
+        # mapping to model_size at first layer
+        if x.shape[-1] != self.model_size:
+            x = hk.Linear(self.model_size, w_init=w_init)(x)
 
-        arc_keys = hk.Embed(self.num_tags, self.model_size)(labels)
-        arc_values = hk.Embed(self.num_tags, self.model_size)(labels)
+        arc_keys = hk.Embed(self.num_tags, self.model_size, w_init=w_init)(labels)
+        arc_values = hk.Embed(self.num_tags, self.model_size, w_init=w_init)(labels)
 
         # Attention layer
         attn = LinearMultiHeadAttention(
@@ -67,4 +71,4 @@ class LinearTransformerBlock(hk.Module):
         output = mlp_output + hiddens
         output = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(output)
 
-        return hiddens
+        return output

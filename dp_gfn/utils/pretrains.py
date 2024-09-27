@@ -86,3 +86,27 @@ def split_into_heads(x, num_heads):
             x.shape[2] // num_heads,
         ],
     )
+
+
+def create_position_ids_from_input_ids(input_ids, padding_idx=1):
+    """
+    Replace non-padding symbols with their position numbers. Position numbers begin at padding_idx+1. Padding symbols
+    are ignored. This is modified from fairseq's `utils.make_positions`.
+
+    Args:
+        input_ids: jnp.ndarray
+        padding_idx: int
+
+    Returns: jnp.ndarray
+    """
+    # The series of casts and type-conversions here are carefully balanced to both work with ONNX export and XLA.
+    mask = (input_ids != padding_idx).astype("i4")
+
+    if mask.ndim > 2:
+        mask = mask.reshape((-1, mask.shape[-1]))
+        incremental_indices = jnp.cumsum(mask, axis=1).astype("i4") * mask
+        incremental_indices = incremental_indices.reshape(input_ids.shape)
+    else:
+        incremental_indices = jnp.cumsum(mask, axis=1).astype("i4") * mask
+
+    return incremental_indices.astype("i4") + padding_idx

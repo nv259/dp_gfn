@@ -11,7 +11,7 @@ common:
 
 pref_encoder:
     _target_: dp_gfn.nets.initial_encoders.PrefEncoder
-    pretrained_path: google-bert/bert-base-uncased
+    pretrained_path: FacebookAI/xlm-roberta-base
     trainable: False
     agg_func: ${model.common.agg_func}
     max_word_length: ${max_number_of_words}
@@ -27,7 +27,6 @@ state_encoder:
     # hidden_layers:    # in_features -> 128 (act) -> 128 (act) -> out_features
     dropout_rate: ${model.common.dropout_rate}
     activation: ${model.common.activation}
-    encode_label: ${init_label_embeddings}
 
 backbone:
     _partial_: True
@@ -85,4 +84,3 @@ output_Z:
     activation: ${model.common.activation}
 
 num_variables: ${max_number_of_words}
-# num_tags: ${num_tags}
