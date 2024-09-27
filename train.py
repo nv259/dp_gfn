@@ -49,11 +49,11 @@ def main(config):
         logging.warning("No validation data found")
 
     logging.info("Initializing Algorithm")
-    algorithm = DPGFN(config=config, num_tags=num_tags, id2rel=id2rel)
+    algorithm = DPGFN(config=config, num_tags=num_tags, id2rel=id2rel, pretrained_path="/mnt/yth/dp_gfn/output/olds/run_bs=16_epsilon=0.05_dim=256_nlayers=3_nheads=4/model_5000.npz")
 
     algorithm.train(train_loader=train_loader, val_loader=val_loader)
 
 
 if __name__ == "__main__":
-    warnings.filterwarnings("ignore")
+    # warnings.filterwarnings("ignore")
     main()
