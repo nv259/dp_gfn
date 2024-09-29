@@ -192,29 +192,6 @@ class DPGFN:
 
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
     
-    def sample_action(self, log_pi, masks, delta):
-        self.key, subkey1, subkey2 = jax.random.split(self.key, 3)
-        
-        # Exploration: Sample action uniformly at random
-        log_uniform = masking.uniform_log_policy(masks)
-        is_exploration = jax.random.bernoulli(
-            subkey1, p=delta, shape=(len(log_pi), 1)
-        )  # TODO: stimulated annealing
-
-        # Mixing GFlowNet policy and uniform policy:
-        # \pi = (1 - delta) * Policy + delta * Uniform
-        log_pi = jnp.where(is_exploration, log_uniform, log_pi)
-
-        # Sample actions
-        actions = masking.batch_random_choice(
-            subkey2, jnp.exp(log_pi), masks
-        )
-
-        log_pF = jnp.take_along_axis(log_pi, actions, axis=1).squeeze(-1)
-        log_pB = masking.uniform_log_policy(masks, is_forward=False)
-
-        return actions, log_pF, log_pB
-        
     def sample(self, gflownet_params, node_embeddings, num_words_list, delta=0.001):
         states = masking.StateBatch(self.num_variables, num_words_list)
         node_ids = jnp.zeros((len(num_words_list),), dtype=jnp.int32)
@@ -241,18 +218,19 @@ class DPGFN:
                 self.key_size,
             )
 
-            next_node_ids, log_pF_node, log_pB_node = self.sample_action(log_node_tp1, states['masks'][1], delta)
+            next_node_ids, log_pF_node, _ = jit(self.sample_action)(log_node_tp1, states['masks'][1], delta)
             log_pF_node = jnp.where(node_dones, jnp.zeros_like(log_pF_node), log_pF_node)
             traj_log_pF += log_pF_node * (1 - node_dones)
-            log_pB_node = jnp.where(node_dones, jnp.zeros_like(log_pB_node), log_pB_node)
-            traj_log_pB += log_pB_node * (1 - node_dones) # log_pB_node = inf if node_done 
+            # log_pB_node = jnp.where(node_dones, jnp.zeros_like(log_pB_node), log_pB_node)
+            # traj_log_pB += log_pB_node * (1 - node_dones) # log_pB_node = inf if node_done 
 
             # Only sample next node at step 0
             # TODO: JIT here?
             if t != 0:
-                actions, log_pF, log_pB = self.sample_action(log_pi_t, states['masks'][0], delta)
+                actions, log_pF, _ = self.sample_action(log_pi_t, states['masks'][0], delta)
                 traj_log_pF += log_pF * (1 - edge_dones)
-                traj_log_pB += log_pB * (1 - edge_dones)  
+                # log_pB = 
+                # traj_log_pB += log_pB * (1 - edge_dones)  
             
             # Move to the next state
             next_node_ids = next_node_ids.squeeze(-1)

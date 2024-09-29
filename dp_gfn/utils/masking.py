@@ -74,6 +74,29 @@ def batch_random_choice(key, probas, masks):
     return samples
 
 
+def sample_action(key, log_pi, masks, delta):
+    key, subkey1, subkey2 = random.split(key, 3)
+    
+    # Exploration: Sample action uniformly at random
+    log_uniform = uniform_log_policy(masks)
+    is_exploration = random.bernoulli(
+        subkey1, p=delta, shape=(len(log_pi), 1)
+    )  # TODO: stimulated annealing
+
+    # pi = (1 - delta) * Policy + delta * Uniform
+    log_pi = jnp.where(is_exploration, log_uniform, log_pi)
+
+    # Sample actions
+    actions = batch_random_choice(
+        subkey2, jnp.exp(log_pi), masks
+    )
+
+    log_pF = jnp.take_along_axis(log_pi, actions, axis=1).squeeze(-1)
+    log_pB = uniform_log_policy(masks, is_forward=False)
+
+    return actions, log_pF, log_pB
+        
+
 def uniform_log_policy(masks, is_forward=True):
     masks = masks.reshape(masks.shape[0], -1)
     num_valid_actions = jnp.sum(masks, axis=-1, keepdims=True)

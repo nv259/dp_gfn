@@ -39,11 +39,14 @@ class DPGFlowNet(hk.Module):
                 init_scale=self.init_scale,
                 num_tags=self.num_tags,
             )(x, labels)
+            
+        # TODO: Should we use only visitted nodes to predict next node to visit?
+        log_node_pi = self.next_node_policy(x.mean(axis=-2), x, masks[1])  
+        
+                 
 
         log_pi = self.edge_policy(x, node_id, masks[0])
         
-        # TODO: Should we use only visitted nodes to predict next node to visit?
-        log_node_pi = self.next_node_policy(x.mean(axis=-2), x, masks[1])  
 
         return log_pi, log_node_pi
 
@@ -79,6 +82,9 @@ class DPGFlowNet(hk.Module):
         log_pi = log_policy(logits, masks)
 
         return log_pi
+    
+    def backward_policy(self, x, mask):
+        pass
 
 
 def log_policy(logits, masks):
