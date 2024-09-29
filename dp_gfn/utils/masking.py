@@ -74,7 +74,7 @@ def batch_random_choice(key, probas, masks):
     return samples
 
 
-def sample_action(key, log_pi, masks, delta):
+def sample_action(key, log_pi, masks, delta, ret_backward=False):
     key, subkey1, subkey2 = random.split(key, 3)
     
     # Exploration: Sample action uniformly at random
@@ -94,7 +94,10 @@ def sample_action(key, log_pi, masks, delta):
     log_pF = jnp.take_along_axis(log_pi, actions, axis=1).squeeze(-1)
     log_pB = uniform_log_policy(masks, is_forward=False)
 
-    return actions, log_pF, log_pB
+    if ret_backward:
+        return key, actions, log_pF, log_pB
+        
+    return key, actions, log_pF
         
 
 def uniform_log_policy(masks, is_forward=True):
