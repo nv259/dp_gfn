@@ -30,7 +30,7 @@ class DPGFlowNet(hk.Module):
 
         self.init_scale = 2.0 / self.num_layers
 
-    def __call__(self, x, node_id, labels, masks):
+    def __call__(self, key, x, node_id, labels, masks, delta):
         for _ in range(self.num_layers):
             x = LinearTransformerBlock(
                 num_heads=self.num_heads,
@@ -41,14 +41,13 @@ class DPGFlowNet(hk.Module):
             )(x, labels)
             
         # TODO: Should we use only visitted nodes to predict next node to visit?
-        log_node_pi = self.next_node_policy(x.mean(axis=-2), x, masks[1])  
+        log_pi_dep = self.next_node_policy(x.mean(axis=-2), x, masks[1])  
+        key, dep_id, log_pF_dep = masking.sample_action(key, log_pi_dep, masks[1], delta)
         
-                 
-
-        log_pi = self.edge_policy(x, node_id, masks[0])
+        log_pi_head = self.edge_policy(x, node_id, masks[0])
+        key, head_id, log_pF_head = masking.sample_action(key, log_pi_head, masks[0], delta)
         
-
-        return log_pi, log_node_pi
+        return key, (dep_id, head_id), (log_pF_dep, log_pF_head)
 
     def Z(self, pref): # TODO: Redesign Z to use input the encoded state
         return DenseBlock(
