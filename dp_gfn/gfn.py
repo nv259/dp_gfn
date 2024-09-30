@@ -224,14 +224,6 @@ class DPGFN:
             # log_pB_node = jnp.where(node_dones, jnp.zeros_like(log_pB_node), log_pB_node)
             # traj_log_pB += log_pB_node * (1 - node_dones) # log_pB_node = inf if node_done 
 
-            # Only sample next node at step 0
-            # TODO: JIT here?
-            if t != 0:
-                actions, log_pF, _ = self.sample_action(log_pi_t, states['masks'][0], delta)
-                traj_log_pF += log_pF * (1 - edge_dones)
-                # log_pB = 
-                # traj_log_pB += log_pB * (1 - edge_dones)  
-            
             # Move to the next state
             next_node_ids = next_node_ids.squeeze(-1)
             states.step(node_ids=next_node_ids, prev_node_ids=node_ids, actions=actions)
