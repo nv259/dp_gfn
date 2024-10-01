@@ -58,20 +58,21 @@ class DPGFN:
 
         # Backbone
         self.gflownet = hk.without_apply_rng(hk.transform(gflownet_forward_fn))
-        base_masks = masking.base_masks(self.num_variables, self.num_variables)
+        base_masks = masking.base_mask(self.num_variables, self.num_variables)
         self.gflownet_params = self.gflownet.init(
             self.key,
+            self.key, 
             jax.random.normal(self.key, (self.num_variables, self.bert_config['hidden_size'])),
-            jnp.array(1, dtype=jnp.int32),
-            np.zeros((self.num_variables,), dtype=np.int32),
+            jnp.zeros((self.num_variables, ), dtype=jnp.int32),
             base_masks,
             self.num_tags,
             self.num_layers,
             self.num_heads,
             self.key_size,
+            jnp.array(0.)
         )
         self.gflownet = vmap(
-            self.gflownet.apply, in_axes=(None, 0, 0, 0, 0, None, None, None, None)
+            self.gflownet.apply, in_axes=(None, 0, 0, 0, 0, None, None, None, None, 0)
         )
 
         self.Z = hk.without_apply_rng(hk.transform(output_total_flow_fn))
@@ -114,7 +115,6 @@ class DPGFN:
         config = self.config.algorithm
         self.reward_scale_factor = config.reward_scale_factor
 
-        # train hyperparameters
         config = config.train
         self.n_grad_accumulation_steps = config.n_grad_accumulation_steps
         self.max_steps = config.max_steps
@@ -130,7 +130,6 @@ class DPGFN:
         gflownet_lr = self.config.algorithm.train.optimizer.gflownet_lr
         Z_lr = self.config.algorithm.train.optimizer.Z_lr
         bert_factor = self.config.algorithm.train.optimizer.bert_factor
-        # weight_decay = self.config.algorithm.train.optimizer.weight_decay
 
         self.Z_optimizer = optax.adam(Z_lr)
         self.Z_state = self.Z_optimizer.init(self.Z_params)
@@ -141,7 +140,7 @@ class DPGFN:
 
     def init_states(self, bert_params, tokens, position_ids, training=False):
         self.key, bert_key = jax.random.split(self.key)
-        # Present initial state (s0) as a set of node_embeddings
+        
         token_embeddings = jit(self.bert_model.apply, static_argnums=(6, ))(
             bert_params, bert_key, tokens['input_ids'], position_ids, jnp.zeros_like(tokens['input_ids']), tokens['attention_mask'], training=training
         )  
@@ -170,15 +169,12 @@ class DPGFN:
         delta
     ):
         node_embeddings, sentence_embeddings = self.init_states(bert_params, tokens, position_ids, training=True)
-        
         log_Z = jit(self.Z)(Z_params, sentence_embeddings).squeeze(axis=-1)
         
-        # Sample trajectory $\tau = (s_0 -> s_1 -> ... -> s_n)$
         traj_log_pF, traj_log_pB, complete_states = self.sample(
             gflownet_params, node_embeddings, num_words_list, delta
         )
        
-        # Compute reward: # TODO: inspect other metrics?
         golds = (golds != 0).astype(bool)
         log_R = jnp.log(
             scores.scale_between(
@@ -193,42 +189,38 @@ class DPGFN:
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
     
     def sample(self, gflownet_params, node_embeddings, num_words_list, delta=0.001):
+        key = jax.random.split(self.key, len(num_words_list)) 
+        delta = jnp.array([delta] * len(num_words_list))
         states = masking.StateBatch(self.num_variables, num_words_list)
-        node_ids = jnp.zeros((len(num_words_list),), dtype=jnp.int32)
-        actions = None
 
         traj_log_pF = jnp.zeros((len(num_words_list),), dtype=jnp.float32)
         traj_log_pB = jnp.zeros((len(num_words_list),), dtype=jnp.float32)
 
         for t in range(self.num_variables):
-            edge_dones, node_dones = masking.check_done(states["masks"], states["num_words"])
-            if np.all(edge_dones):
-                break
-
-            # Exploitation: Sample action based on GFlowNet policy
-            log_pi_t, log_node_tp1 = jit(self.gflownet, static_argnums=(5, 6, 7, 8))(
+            # dones = states.check_done()
+            # if dones.all():
+            #     break
+            
+            
+            key, actions, (log_pF_dep, log_pF_head) = jit(self.gflownet, static_argnums=(5, 6, 7, 8))(
                 gflownet_params,
+                key,
                 node_embeddings,
-                node_ids,
                 states["labels"],
                 states["masks"],
                 self.num_tags,
                 self.num_layers,
                 self.num_heads,
                 self.key_size,
+                delta
             )
+             
+            traj_log_pF += (log_pF_dep + log_pF_head) * (1 - dones)
 
-            next_node_ids, log_pF_node, _ = jit(self.sample_action)(log_node_tp1, states['masks'][1], delta)
-            log_pF_node = jnp.where(node_dones, jnp.zeros_like(log_pF_node), log_pF_node)
-            traj_log_pF += log_pF_node * (1 - node_dones)
-            # log_pB_node = jnp.where(node_dones, jnp.zeros_like(log_pB_node), log_pB_node)
-            # traj_log_pB += log_pB_node * (1 - node_dones) # log_pB_node = inf if node_done 
-
-            # Move to the next state
-            next_node_ids = next_node_ids.squeeze(-1)
-            states.step(node_ids=next_node_ids, prev_node_ids=node_ids, actions=actions)
-            node_ids = next_node_ids    # num_word = 1 => edge_dones at step 0
-
+            states.step(actions)
+        
+        self.key = key[0]
+        
         return traj_log_pF, traj_log_pB, states
 
     def train(self, train_loader: DataLoader, val_loader: DataLoader):
@@ -237,7 +229,6 @@ class DPGFN:
             f"run_bs={self.batch_size}_epsilon={self.exploration_rate}_dim={self.model_size}_nlayers={self.num_layers}_nheads={self.num_heads}")
         os.makedirs(save_folder, exist_ok=True)
         
-        # train_loader = iter(train_loader)
         train_loader = cycle(train_loader)
         train_losses, val_losses = [], []
         train_loss, val_loss = 0, 0
@@ -330,7 +321,6 @@ class DPGFN:
                     )
                 train_losses.append(logs['loss'])
             
-        # Save model parameters
         io.save(os.path.join(save_folder, "model.npz"), 
                 bert=self.bert_params, 
                 gflownet=self.gflownet_params, 
