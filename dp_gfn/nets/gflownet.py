@@ -39,50 +39,51 @@ class DPGFlowNet(hk.Module):
                 init_scale=self.init_scale,
                 num_tags=self.num_tags,
             )(x, labels)
-            
-        log_pi_dep = self.dep_policy(x.mean(axis=-2), x, mask[1])  
-        key, dep_id, log_pF_dep = masking.sample_action(key, log_pi_dep, mask[1], delta)
-         
-        log_pi_head = self.head_policy(x, dep_id, mask[0])
-        key, head_id, log_pF_head = masking.sample_action(key, log_pi_head, mask[0], delta)
         
-        return key, (dep_id, head_id), (log_pF_dep, log_pF_head)
-
-    def Z(self, pref): # TODO: Redesign Z to use input the encoded state
-        return DenseBlock(
-            output_size=self.model_size, init_scale=self.init_scale, name="Z_flow"
-        )(pref).mean(-1)
-
-    def head_policy(self, x, node_id, mask):
-        deps = jnp.repeat(x[jnp.newaxis, node_id], x.shape[-2], axis=-2)
+        dep_mask = jnp.any(mask, axis=0)    
+        log_pi_dep = self.dep_policy(x.mean(axis=-2), x[1:], dep_mask[1:])  
+        key, dep_id, log_pF_dep = masking.sample_action(key, log_pi_dep, dep_mask[1:], delta)
+        dep_id = dep_id + 1     # Offset dep_id by 1 since ROOT cannot be chosen as a dependant
         
-        # TODO: What if we use edge policy at step 0?
-        logits = jax.vmap(
-            Biaffine(num_tags=1, init_scale=self.init_scale), in_axes=(0, 0)
-        )(x, deps)
-        logits = logits.squeeze(-1)
-        log_pi = log_policy(logits, mask)
-
-        return log_pi
+        head_mask = mask[:, dep_id] 
+        log_pi_head = self.head_policy(x, dep_id, head_mask)
+        key, head_id, log_pF_head = masking.sample_action(key, log_pi_head, head_mask, delta)
+        
+        log_pBs = self.backward_policy(x[1:], jnp.logical_not(dep_mask)[1:])
+        
+        return key, (dep_id, head_id), (log_pF_dep, log_pF_head), log_pBs
 
     def dep_policy(self, graph_emb, node_embeddings, mask):
         graph_embs = jnp.repeat(
             graph_emb[jnp.newaxis, :], node_embeddings.shape[0], axis=0
         )
-        hidden = jnp.concatenate([graph_embs, node_embeddings], axis=-1)
-
-        # logits = DenseBlock(1, init_scale=self.init_scale)(hidden)
+        
         logits = jax.vmap(
             Biaffine(num_tags=1, init_scale=self.init_scale), in_axes=(0, 0)
-        )(graph_embs, hidden)
-        
+        )(graph_embs, node_embeddings)
         logits = logits.squeeze(-1)
         log_pi = log_policy(logits, mask)
 
         return log_pi
     
-    def backward_policy(self, x, mask):
-        pass
+    def head_policy(self, node_embeddings, node_id, mask):
+        deps = jnp.repeat(node_embeddings[jnp.newaxis, node_id], node_embeddings.shape[-2], axis=-2)
+        
+        # IDEA: What if we use edge policy at step 0?
+        logits = jax.vmap(
+            Biaffine(num_tags=1, init_scale=self.init_scale), in_axes=(0, 0)
+        )(node_embeddings, deps)
+        logits = logits.squeeze(-1)
+        log_pi = log_policy(logits, mask)
+
+        return log_pi
+
+    def backward_policy(self, node_embeddings, mask):
+        logits = DenseBlock(1, init_scale=self.init_scale)(node_embeddings)
+        logits = logits.squeeze(-1)
+        log_pB = log_policy(logits, mask)
+        
+        return log_pB 
 
 
 def log_policy(logits, mask):
@@ -98,7 +99,7 @@ def gflownet_forward_fn(
 ):
     num_variables = int(x.shape[0])
 
-    key, actions, (log_pF_dep, log_pF_head) = DPGFlowNet(
+    key, actions, (log_pF_dep, log_pF_head), log_pBs = DPGFlowNet(
         num_variables=num_variables,
         num_tags=num_tags,
         num_layers=num_layers,
@@ -106,13 +107,7 @@ def gflownet_forward_fn(
         key_size=key_size,
     )(key, x, labels, mask, delta)
 
-    return key, actions, (log_pF_dep, log_pF_head)
-
-
-def gflownet_backward_fn(
-    
-):
-    pass
+    return key, actions, (log_pF_dep, log_pF_head), log_pBs
 
 
 def output_total_flow_fn(pref):
