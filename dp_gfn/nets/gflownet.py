@@ -49,7 +49,7 @@ class DPGFlowNet(hk.Module):
         log_pi_head = self.head_policy(x, dep_id, head_mask)
         key, head_id, log_pF_head = masking.sample_action(key, log_pi_head, head_mask, delta)
         
-        log_pBs = self.backward_policy(x[1:], jnp.logical_not(dep_mask)[1:])
+        log_pBs = self.backward_policy(x[1:], labels[1:].astype(jnp.bool_))
         
         return key, (dep_id, head_id), (log_pF_dep, log_pF_head), log_pBs
 
