@@ -23,35 +23,43 @@ def batched_base_mask(
     batch_size: int,
     num_variables: int,
     num_words_list: list[int],
-):
-    # Mask for sampling edge with shape [len(num_words), num_variables]
-    # 1. mask[visitted nodes] == True
-    # 2. mask[un-visitted nodes] == False
-    # To this end, only first elements, i.e. the `ROOT`, of the initial mask are set to True
-    edge_mask = np.zeros((batch_size, num_variables), dtype=np.bool_)
-    edge_mask[:, 0] = True
+) -> np.ndarray:
+    """Generate batch of base masks for initial graph with shape [batch_size, num_variables, num_variables], i.e., batchified version of base_mask
 
-    # Mask for sampling next node (reverse of the previous edge mask)
-    node_mask = np.ones((batch_size, num_variables), dtype=np.bool_)
-    node_mask[:, 0] = False
+    Args:
+        batch_size (int): Batch size
+        num_variables (int): Total number of nodes in the graphs (including [ROOT] and [PAD])
+        num_words_list (list[int]): List of actual number of nodes w.r.t each graph (excluding [PAD])
+    """
+    mask = base_mask(num_variables, num_variables)
+    mask = np.repeat(mask[np.newaxis, ...], batch_size, axis=0) 
+    
     for idx, num_words in enumerate(num_words_list):
-        node_mask[idx, num_words + 1 :] = False
-
-    return [edge_mask, node_mask]
+        mask[idx, num_words + 1:, :] = False
+        mask[idx, :, num_words + 1:] = False
+    
+    return mask
 
 
 def base_mask(
     num_variables: int,
     num_words: int,
-):
-    edge_mask = np.zeros(num_variables, dtype=np.bool_)
-    edge_mask[0] = True
+) -> np.ndarray:
+    """Generate base mask for initial graph with shape [num_variables, num_variables]
 
-    node_mask = np.ones(num_variables, dtype=np.bool_)
-    node_mask[0] = False
-    node_mask[num_words + 1 :] = False
+    Args:
+        num_variables (int): Total number of nodes in the graph (including [ROOT] and [PAD])
+        num_words (int): Actual number of nodes in the graph (excluding [PAD])
 
-    return [edge_mask, node_mask]
+    Returns:
+        np.bool_: base mask with shape [num_variables, num_variables]
+    """
+    mask = np.ones((num_variables, num_variables), dtype=np.bool_)
+    mask[:, 0] = False                              # No incoming edges into ROOT
+    np.fill_diagonal(mask, False)                   # No self-loop edges
+    mask[num_words + 1:, :] = False                 # No [PAD] (head)
+    mask[:, num_words + 1:] = False                 # No [PAD] (dependent)
+    return mask
 
 
 def mask_logits(logits, mask):
@@ -69,7 +77,7 @@ def batch_random_choice(key, probas, mask, delta):
     samples = jnp.sum(cum_probas < uniform, axis=-1)
 
     # mask = mask.reshape(mask.shape[0], -1)
-    # is_valid = jnp.take_along_axis(mask, samples, axis=1)    # TODO: Potential risk
+    # is_valid = jnp.take_along_axis(mask, samples, axis=1)    # TODO: Implement precautionary measure for potential failure in sampling actions
 
     return samples
 
@@ -120,7 +128,7 @@ class StateBatch:
         
         self._data = {
             "labels": np.zeros((self.batch_size, self.num_variables), dtype=np.int32),
-            "mask": batched_base_mask(  # (edge_mask, node_mask)
+            "mask": batched_base_mask( 
                 batch_size=self.batch_size,
                 num_variables=self.num_variables,
                 num_words_list=num_words_list,
