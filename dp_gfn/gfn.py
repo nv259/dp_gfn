@@ -196,28 +196,36 @@ class DPGFN:
         traj_log_pF = jnp.zeros((len(num_words_list),), dtype=jnp.float32)
         traj_log_pB = jnp.zeros((len(num_words_list),), dtype=jnp.float32)
 
-        for t in range(self.num_variables):
-            # dones = states.check_done()
-            # if dones.all():
-            #     break
-            
-            
-            key, actions, (log_pF_dep, log_pF_head) = jit(self.gflownet, static_argnums=(5, 6, 7, 8))(
+        for step in range(self.num_variables):
+            dones = states.check_done()
+            if dones.all(): break
+                 
+            key, actions, (log_pF_dep, log_pF_head), log_pBs = jit(self.gflownet, static_argnums=(5, 6, 7, 8))(
+            # key, actions, (log_pF_dep, log_pF_head), log_pBs = self.gflownet(
                 gflownet_params,
                 key,
                 node_embeddings,
                 states["labels"],
-                states["masks"],
+                states["mask"],
                 self.num_tags,
                 self.num_layers,
                 self.num_heads,
                 self.key_size,
                 delta
             )
-             
-            traj_log_pF += (log_pF_dep + log_pF_head) * (1 - dones)
+            
+            log_pF_dep = jnp.where(dones, jnp.zeros_like(log_pF_dep), log_pF_dep)
+            log_pF_head = jnp.where(dones, jnp.zeros_like(log_pF_head), log_pF_head) 
+            traj_log_pF += (log_pF_dep + log_pF_head)
+            
+            if step > 0:    # Remove the dependent (prev_action) and its link
+                log_pB = jnp.take_along_axis(log_pBs, (prev_actions - 1)[..., jnp.newaxis], axis=1).squeeze(-1)
+                log_pB = jnp.where(prev_dones, jnp.zeros_like(log_pB), log_pB)
+                traj_log_pB += log_pB
 
-            states.step(actions)
+            states.step(np.array(actions))
+            prev_dones = dones.copy()
+            prev_actions = actions[0].copy()
         
         self.key = key[0]
         
