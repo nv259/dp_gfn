@@ -2,6 +2,7 @@
 
 import haiku as hk
 import jax.nn as nn
+
 from dp_gfn.nets.attention import LinearMultiHeadAttention
 
 
@@ -42,7 +43,7 @@ class LinearTransformerBlock(hk.Module):
 
     def __call__(self, x, labels):
         w_init = hk.initializers.VarianceScaling(self.init_scale)
-        
+
         # mapping to model_size at first layer
         if x.shape[-1] != self.model_size:
             x = hk.Linear(self.model_size, w_init=w_init)(x)

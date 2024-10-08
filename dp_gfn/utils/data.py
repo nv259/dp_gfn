@@ -1,10 +1,9 @@
 import os
 import xml.etree.ElementTree as ET
 
+import conllu
 import networkx as nx
 import numpy as np
-
-import conllu
 from torch.utils.data import DataLoader, Dataset
 
 
@@ -14,13 +13,13 @@ def parse_token_tree(
     edges = []
 
     current_index = current_node.token["id"]
-    
+
     if type(current_index) == int:
         edges.append((parent_index, current_index, current_node.token["deprel"]))
         tokens[current_index] = current_node.token["form"]
-    else: 
+    else:
         raise Exception("Token id is not an integer")
-        
+
     if current_node.children == 0:
         return edges
 
@@ -127,28 +126,36 @@ class BaseDataset(Dataset):
                 word_dict = {}
                 edges_list = parse_token_tree(tokenlist, tokens=word_dict)
                 edges_list = np.array(
-                    [(source, target, self.rel_id[tag]) for source, target, tag in edges_list]
+                    [
+                        (source, target, self.rel_id[tag])
+                        for source, target, tag in edges_list
+                    ]
                 )
                 words_list = [word_dict[idx] for idx in range(1, len(word_dict) + 1)]
                 joined_words = " ".join(words_list)
-                
-                if len(words_list) > max_number_of_words - 1 and 'train' in path_to_conllu_file:
-                    continue 
+
+                if (
+                    len(words_list) > max_number_of_words - 1
+                    and "train" in path_to_conllu_file
+                ):
+                    continue
                 elif len(words_list) > max_number_of_words:
                     continue
-                  
+
                 self.data.append(
                     {
                         "text": "<s> " + joined_words,
                         "edges": edges_list,
                         "num_words": len(words_list),
                     }
-                ) 
-                
+                )
+
                 self.max_num_nodes = max(self.max_num_nodes, len(words_list))
 
-        if 'train' in path_to_conllu_file:
-            self.max_num_nodes = min(self.max_num_nodes, max_number_of_words) + 1   # ROOT node
+        if "train" in path_to_conllu_file:
+            self.max_num_nodes = (
+                min(self.max_num_nodes, max_number_of_words) + 1
+            )  # ROOT node
         else:
             self.max_num_nodes = max_number_of_words
 
@@ -157,27 +164,27 @@ class BaseDataset(Dataset):
 
     def __getitem__(self, index):
         item = self.data[index]
-        
+
         if self.store_nx_graph:
             G = nx.DiGraph()
-            for source, target, tag in item['edges']:
+            for source, target, tag in item["edges"]:
                 G.add_edge(source, target, tag=tag)
         else:
             G = adjacency_matrix_from_edges_list(
-                item['edges'], num_variables=self.max_num_nodes
+                item["edges"], num_variables=self.max_num_nodes
             )
 
         if (
             self.return_edges
         ):  # cannot batch because of the discrepancy of sizes between edges_lists
             return {
-                "text": item['text'],
+                "text": item["text"],
                 "graph": G,
-                "edges": item['edges'],
-                "num_words": item['num_words'],
+                "edges": item["edges"],
+                "num_words": item["num_words"],
             }
         else:
-            return {"text": item['text'], "graph": G, "num_words": item['num_words']}
+            return {"text": item["text"], "graph": G, "num_words": item["num_words"]}
 
 
 def get_dataloader(
@@ -203,7 +210,7 @@ def get_dataloader(
         shuffle=shuffle,
         collate_fn=collate_nx_graphs if store_nx_graph else np_collate_fn,
         num_workers=num_workers,
-        drop_last=True
+        drop_last=True,
     )
 
     if is_train:

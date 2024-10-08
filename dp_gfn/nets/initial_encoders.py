@@ -1,8 +1,9 @@
 import haiku as hk
 import jax.numpy as jnp
+from transformers import AutoConfig
+
 from dp_gfn.nets.bert import BertModel
 from dp_gfn.utils.pretrains import batch_token_embeddings_to_batch_word_embeddings
-from transformers import AutoConfig
 
 
 # WARNING: Deprecated state encoding approach
@@ -33,6 +34,7 @@ class StateEncoder(hk.Module):
 
         return state_embeddings
 
+
 def state_featurizer_fn(word_embeddings, node_embedding_dim):
     state_embeddings = StateEncoder(
         num_variables=word_embeddings.shape[-2],
@@ -55,7 +57,7 @@ class PrefEncoder(hk.Module):
 
     def __call__(self, tokens, training=False):
         # TODO: Enable training option for pretrained model
-        token_embeddings = BertModel(self.config)(**tokens, training=training)  
+        token_embeddings = BertModel(self.config)(**tokens, training=training)
 
         word_embeddings = batch_token_embeddings_to_batch_word_embeddings(
             tokens=tokens,

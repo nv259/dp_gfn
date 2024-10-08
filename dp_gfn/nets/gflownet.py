@@ -1,6 +1,7 @@
 import haiku as hk
 import jax
 import jax.numpy as jnp
+
 from dp_gfn.nets.encoders import DenseBlock, LinearTransformerBlock
 from dp_gfn.nets.initial_encoders import Biaffine
 from dp_gfn.utils import masking
@@ -39,25 +40,31 @@ class DPGFlowNet(hk.Module):
                 init_scale=self.init_scale,
                 num_tags=self.num_tags,
             )(x, labels)
-        
-        dep_mask = jnp.any(mask, axis=0)    
-        log_pi_dep = self.dep_policy(x.mean(axis=-2), x[1:], dep_mask[1:])  
-        key, dep_id, log_pF_dep = masking.sample_action(key, log_pi_dep, dep_mask[1:], delta)
-        dep_id = dep_id + 1     # Offset dep_id by 1 since ROOT cannot be chosen as a dependant
-        
-        head_mask = mask[:, dep_id] 
+
+        dep_mask = jnp.any(mask, axis=0)
+        log_pi_dep = self.dep_policy(x.mean(axis=-2), x[1:], dep_mask[1:])
+        key, dep_id, log_pF_dep = masking.sample_action(
+            key, log_pi_dep, dep_mask[1:], delta
+        )
+        dep_id = (
+            dep_id + 1
+        )  # Offset dep_id by 1 since ROOT cannot be chosen as a dependant
+
+        head_mask = mask[:, dep_id]
         log_pi_head = self.head_policy(x, dep_id, head_mask)
-        key, head_id, log_pF_head = masking.sample_action(key, log_pi_head, head_mask, delta)
-        
+        key, head_id, log_pF_head = masking.sample_action(
+            key, log_pi_head, head_mask, delta
+        )
+
         log_pBs = self.backward_policy(x[1:], labels[1:].astype(jnp.bool_))
-        
+
         return key, (dep_id, head_id), (log_pF_dep, log_pF_head), log_pBs
 
     def dep_policy(self, graph_emb, node_embeddings, mask):
         graph_embs = jnp.repeat(
             graph_emb[jnp.newaxis, :], node_embeddings.shape[0], axis=0
         )
-        
+
         logits = jax.vmap(
             Biaffine(num_tags=1, init_scale=self.init_scale), in_axes=(0, 0)
         )(graph_embs, node_embeddings)
@@ -65,10 +72,12 @@ class DPGFlowNet(hk.Module):
         log_pi = log_policy(logits, mask)
 
         return log_pi
-    
+
     def head_policy(self, node_embeddings, node_id, mask):
-        deps = jnp.repeat(node_embeddings[jnp.newaxis, node_id], node_embeddings.shape[-2], axis=-2)
-        
+        deps = jnp.repeat(
+            node_embeddings[jnp.newaxis, node_id], node_embeddings.shape[-2], axis=-2
+        )
+
         # IDEA: What if we use edge policy at step 0?
         logits = jax.vmap(
             Biaffine(num_tags=1, init_scale=self.init_scale), in_axes=(0, 0)
@@ -82,8 +91,8 @@ class DPGFlowNet(hk.Module):
         logits = DenseBlock(1, init_scale=self.init_scale)(node_embeddings)
         logits = logits.squeeze(-1)
         log_pB = log_policy(logits, mask)
-        
-        return log_pB 
+
+        return log_pB
 
 
 def log_policy(logits, mask):
@@ -95,7 +104,7 @@ def log_policy(logits, mask):
 
 
 def gflownet_forward_fn(
-    key, x, labels, mask, num_tags, num_layers, num_heads, key_size, delta=0.
+    key, x, labels, mask, num_tags, num_layers, num_heads, key_size, delta=0.0
 ):
     num_variables = int(x.shape[0])
 
@@ -111,4 +120,4 @@ def gflownet_forward_fn(
 
 
 def output_total_flow_fn(pref):
-    return DenseBlock(output_size=1, name="Z_flow", init_scale=2. / 12.)(pref)
+    return DenseBlock(output_size=1, name="Z_flow", init_scale=2.0 / 12.0)(pref)

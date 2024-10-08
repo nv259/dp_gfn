@@ -3,13 +3,14 @@ import os
 import random
 import warnings
 
-import torch
-import numpy as np
 import hydra
+import numpy as np
+import torch
+from omegaconf import DictConfig, OmegaConf
+
 from dp_gfn.gfn import DPGFN
 from dp_gfn.utils.data import get_dataloader
 from dp_gfn.utils.misc import flatten_config
-from omegaconf import DictConfig, OmegaConf
 
 
 def set_seed(seed):
@@ -19,8 +20,8 @@ def set_seed(seed):
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
-    
-    
+
+
 @hydra.main(config_path="./configs", config_name="main")
 def main(config):
     os.chdir(hydra.utils.get_original_cwd())
@@ -43,11 +44,11 @@ def main(config):
         is_train=True,
     )
     config.model.num_variables = max_num_nodes
-    config.max_number_of_words = max_num_nodes - 1 
+    config.max_number_of_words = max_num_nodes - 1
     print(OmegaConf.to_yaml(config))
     with open("hydra_config.txt", "w") as f:
         f.write(OmegaConf.to_yaml(config))
-        
+
     try:
         val_loader, _ = get_dataloader(
             path_to_conllu_file=config.train_path.replace("train", "dev"),

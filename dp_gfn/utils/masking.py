@@ -1,8 +1,6 @@
-import numpy as np
-
 import jax.numpy as jnp
+import numpy as np
 from jax import random
-
 
 MASKED_VALUE = -1e5
 
@@ -30,17 +28,17 @@ def batched_base_mask(
         batch_size (int): Batch size
         num_variables (int): Total number of nodes in the graphs (including [ROOT] and [PAD])
         num_words_list (list[int]): List of actual number of nodes w.r.t each graph (excluding [PAD])
-        
-    Returns: 
+
+    Returns:
         np.ndarray: base mask with shape [batch_size, num_variables, num_variables]
     """
     mask = base_mask(num_variables, num_variables)
-    mask = np.repeat(mask[np.newaxis, ...], batch_size, axis=0) 
-    
+    mask = np.repeat(mask[np.newaxis, ...], batch_size, axis=0)
+
     for idx, num_words in enumerate(num_words_list):
-        mask[idx, num_words + 1:, :] = False
-        mask[idx, :, num_words + 1:] = False
-    
+        mask[idx, num_words + 1 :, :] = False
+        mask[idx, :, num_words + 1 :] = False
+
     return mask
 
 
@@ -58,10 +56,10 @@ def base_mask(
         np.ndarray: base mask with shape [num_variables, num_variables]
     """
     mask = np.ones((num_variables, num_variables), dtype=np.bool_)
-    mask[:, 0] = False                              # No incoming edges into ROOT
-    np.fill_diagonal(mask, False)                   # No self-loop edges
-    mask[num_words + 1:, :] = False                 # No [PAD] (head)
-    mask[:, num_words + 1:] = False                 # No [PAD] (dependent)
+    mask[:, 0] = False  # No incoming edges into ROOT
+    np.fill_diagonal(mask, False)  # No self-loop edges
+    mask[num_words + 1 :, :] = False  # No [PAD] (head)
+    mask[:, num_words + 1 :] = False  # No [PAD] (dependent)
     return mask
 
 
@@ -83,26 +81,22 @@ def batch_random_choice(key, probas, mask, delta):
 
 def sample_action(key, log_pi, mask, delta, ret_backward=False):
     key, subkey1, subkey2 = random.split(key, 3)
-    
+
     log_uniform = uniform_log_policy(mask)
-    is_exploration = random.bernoulli(
-        subkey1, p=delta, shape=(delta.shape)
-    )
+    is_exploration = random.bernoulli(subkey1, p=delta, shape=(delta.shape))
 
     log_pi = jnp.where(is_exploration, log_uniform, log_pi)
 
-    actions = batch_random_choice(
-        subkey2, jnp.exp(log_pi), mask, delta
-    )
+    actions = batch_random_choice(subkey2, jnp.exp(log_pi), mask, delta)
 
     log_pF = log_pi[actions]
 
     if ret_backward:
         log_pB = uniform_log_policy(mask, is_forward=False)
         return key, actions, log_pF, log_pB
-        
+
     return key, actions, log_pF
-        
+
 
 def uniform_log_policy(mask, is_forward=True):
     num_valid_actions = jnp.sum(mask, axis=-1, keepdims=True)
@@ -124,10 +118,10 @@ class StateBatch:
     ):
         self.batch_size = len(num_words_list)
         self.num_variables = num_variables
-        
+
         self._data = {
             "labels": np.zeros((self.batch_size, self.num_variables), dtype=np.int32),
-            "mask": batched_base_mask( 
+            "mask": batched_base_mask(
                 batch_size=self.batch_size,
                 num_variables=self.num_variables,
                 num_words_list=num_words_list,
@@ -138,18 +132,18 @@ class StateBatch:
                 dtype=np.int32,
             ),
         }
-        
+
         self._closure_T = np.repeat(
             np.eye(self.num_variables, dtype=np.bool_)[np.newaxis],
             self.batch_size,
             axis=0,
         )
-        
+
         # Who let a sentence with only one word here???
         for i in range(self.batch_size):
-            if self['num_words'][i] == 1:
-                self['adjacency'][i, 0, 1] = 1
-                self['labels'][i, 1] = 1
+            if self["num_words"][i] == 1:
+                self["adjacency"][i, 0, 1] = 1
+                self["labels"][i, 1] = 1
 
     def __len__(self):
         return len(self["labels"])
@@ -175,12 +169,18 @@ class StateBatch:
         targets, sources = actions
         dones = self.check_done()
         sources, targets = sources[~dones], targets[~dones]
- 
-        assert np.all(sources <= self["num_words"][~dones]), "Invalid head node(s): Node(s) out of range"
-        assert np.all(targets <= self["num_words"][~dones]), "Invalid dependent node(s): Node(s) out of range"
-        
+
+        assert np.all(
+            sources <= self["num_words"][~dones]
+        ), "Invalid head node(s): Node(s) out of range"
+        assert np.all(
+            targets <= self["num_words"][~dones]
+        ), "Invalid dependent node(s): Node(s) out of range"
+
         if not np.all(self["mask"][~dones, sources, targets]):
-            raise ValueError("Invalid action(s): Already existed edge(s), Self-loop, or Causing-cycle edge(s).")
+            raise ValueError(
+                "Invalid action(s): Already existed edge(s), Self-loop, or Causing-cycle edge(s)."
+            )
 
         # Update adjacency matrices
         self._data["adjacency"][~dones, sources, targets] = 1
@@ -190,20 +190,22 @@ class StateBatch:
         # Update transitive closure of transpose
         source_rows = np.expand_dims(self._closure_T[~dones, sources, :], axis=1)
         target_cols = np.expand_dims(self._closure_T[~dones, :, targets], axis=2)
-        self._closure_T[~dones] |= np.logical_and(source_rows, target_cols)  # Outer product
+        self._closure_T[~dones] |= np.logical_and(
+            source_rows, target_cols
+        )  # Outer product
         self._closure_T[dones] = np.eye(self.num_variables, dtype=np.bool_)
 
         # Update the mask
         self._data["mask"] = 1 - (self._data["adjacency"] + self._closure_T)
         num_parents = np.sum(self["adjacency"], axis=1, keepdims=True)
-        self._data["mask"] *= (num_parents < 1)
-        
+        self._data["mask"] *= num_parents < 1
+
         # Exclude all undue edges
         for batch_idx, num_word in enumerate(self["num_words"]):
-            self._data['mask'][batch_idx, num_word + 1:, :] = False
-            self._data['mask'][batch_idx, :, num_word + 1:] = False
-        
-        self._data["mask"][:, :, 0] = False 
-    
+            self._data["mask"][batch_idx, num_word + 1 :, :] = False
+            self._data["mask"][batch_idx, :, num_word + 1 :] = False
+
+        self._data["mask"][:, :, 0] = False
+
     def check_done(self):
-        return self['adjacency'].sum(axis=-1).sum(axis=-1) == self['num_words']
+        return self["adjacency"].sum(axis=-1).sum(axis=-1) == self["num_words"]

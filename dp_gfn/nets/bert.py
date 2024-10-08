@@ -1,11 +1,10 @@
-import numpy as np
-
 import haiku as hk
 import jax
 import jax.numpy as jnp
-from dp_gfn.utils.pretrains import split_into_heads
+import numpy as np
 from transformers import AutoConfig, AutoModel
-from dp_gfn.utils.pretrains import create_position_ids_from_input_ids
+
+from dp_gfn.utils.pretrains import create_position_ids_from_input_ids, split_into_heads
 
 
 class PretrainedWeights(object):
@@ -32,7 +31,7 @@ class PretrainedWeights(object):
 
 def init(pretrained_path):
     global PRETRAINED_WEIGHTS, CONFIG
-    
+
     PRETRAINED_WEIGHTS = PretrainedWeights(pretrained_path)
     CONFIG = AutoConfig.from_pretrained(pretrained_path).to_dict()
 
@@ -44,13 +43,15 @@ class Embeddings(hk.Module):
         super().__init__()
         self.config = config
 
-    def __call__(self, input_ids=None, token_type_ids=None, position_ids=None, training=False):
+    def __call__(
+        self, input_ids=None, token_type_ids=None, position_ids=None, training=False
+    ):
         # Calculate embeddings
         token_embeddings = WordEmbeddings(self.config)(input_ids)
-        
+
         if position_ids is None:
             position_ids = create_position_ids_from_input_ids(input_ids)
-             
+
         position_embeddings = PositionEmbeddings(self.config)(position_ids)
         token_type_embeddings = TokenTypeEmbeddings(self.config)(token_type_ids)
 
@@ -71,7 +72,7 @@ class Embeddings(hk.Module):
             name="LayerNorm",
         )(embeddings)
 
-        if training: 
+        if training:
             embeddings = hk.dropout(
                 hk.next_rng_key(), rate=self.config["hidden_dropout_prob"], x=embeddings
             )
@@ -117,18 +118,18 @@ class PositionEmbeddings(hk.Module):
         flat_position_ids = jnp.reshape(
             position_ids, [position_ids.shape[0] * position_ids.shape[1]]
         )
-        
+
         flat_position_embeddings = hk.Embed(
             vocab_size=self.config["max_position_embeddings"],
             embed_dim=self.config["hidden_size"],
             w_init=hk.initializers.Constant(
                 PRETRAINED_WEIGHTS["embeddings.position_embeddings.weight"]
-            )
+            ),
         )(flat_position_ids)
-        
+
         position_embeddings = jnp.reshape(
             flat_position_embeddings,
-            [position_ids.shape[0], position_ids.shape[1], self.config["hidden_size"]]
+            [position_ids.shape[0], position_ids.shape[1], self.config["hidden_size"]],
         )
 
         return position_embeddings
@@ -380,24 +381,34 @@ class Output(hk.Module):
                 ]
             ),
         )(output)
-        
+
         # Dropout
         if training:
-            output = hk.dropout(hk.next_rng_key(), rate=self.config["hidden_dropout_prob"], x=output)
+            output = hk.dropout(
+                hk.next_rng_key(), rate=self.config["hidden_dropout_prob"], x=output
+            )
 
         return output
 
 
 class BertModel(hk.Module):
     def __init__(self, config, name="BertModel"):
-        super().__init__(name=config['model_type'].replace('-', ''))
+        super().__init__(name=config["model_type"].replace("-", ""))
         self.config = config
 
     def __call__(
-        self, input_ids=None, position_ids=None, token_type_ids=None, attention_mask=None, training=False
+        self,
+        input_ids=None,
+        position_ids=None,
+        token_type_ids=None,
+        attention_mask=None,
+        training=False,
     ):
         x = Embeddings(self.config)(
-            input_ids=input_ids, position_ids=position_ids, token_type_ids=token_type_ids, training=training
+            input_ids=input_ids,
+            position_ids=position_ids,
+            token_type_ids=token_type_ids,
+            training=training,
         )
         mask = attention_mask.astype(jnp.float32)
 
@@ -413,5 +424,5 @@ def get_bert_token_embeddings_fn(
     token_embeddings = BertModel(CONFIG)(
         input_ids, position_ids, token_type_ids, attention_mask, training=training
     )
-    
+
     return token_embeddings
