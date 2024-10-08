@@ -205,7 +205,11 @@ class StateBatch:
             self._data["mask"][batch_idx, num_word + 1 :, :] = False
             self._data["mask"][batch_idx, :, num_word + 1 :] = False
 
+        # Filter already linked ROOT
         self._data["mask"][:, :, 0] = False
+        self._data["mask"][:, 0] *= np.logical_not(
+            np.any(self["adjacency"][:, 0], axis=1, keepdims=True)
+        )
 
     def check_done(self):
         return self["adjacency"].sum(axis=-1).sum(axis=-1) == self["num_words"]
