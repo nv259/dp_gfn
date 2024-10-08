@@ -30,6 +30,9 @@ def batched_base_mask(
         batch_size (int): Batch size
         num_variables (int): Total number of nodes in the graphs (including [ROOT] and [PAD])
         num_words_list (list[int]): List of actual number of nodes w.r.t each graph (excluding [PAD])
+        
+    Returns: 
+        np.ndarray: base mask with shape [batch_size, num_variables, num_variables]
     """
     mask = base_mask(num_variables, num_variables)
     mask = np.repeat(mask[np.newaxis, ...], batch_size, axis=0) 
@@ -52,7 +55,7 @@ def base_mask(
         num_words (int): Actual number of nodes in the graph (excluding [PAD])
 
     Returns:
-        np.bool_: base mask with shape [num_variables, num_variables]
+        np.ndarray: base mask with shape [num_variables, num_variables]
     """
     mask = np.ones((num_variables, num_variables), dtype=np.bool_)
     mask[:, 0] = False                              # No incoming edges into ROOT
@@ -64,10 +67,6 @@ def base_mask(
 
 def mask_logits(logits, mask):
     return mask * logits + (1 - mask) * MASKED_VALUE
-
-
-def check_done(mask, num_words):
-    return mask[0].sum(axis=1) == num_words, mask[1].sum(axis=1) == 0
 
 
 def batch_random_choice(key, probas, mask, delta):
@@ -140,25 +139,29 @@ class StateBatch:
             ),
         }
         
+        self._closure_T = np.repeat(
+            np.eye(self.num_variables, dtype=np.bool_)[np.newaxis],
+            self.batch_size,
+            axis=0,
+        )
+        
         # Who let a sentence with only one word here???
         for i in range(self.batch_size):
-            if self._data['num_words'][i] == 1:
-                self._data['adjacency'][i, 0, 1] = 1
-                self._data['labels'][i, 1] = 1
+            if self['num_words'][i] == 1:
+                self['adjacency'][i, 0, 1] = 1
+                self['labels'][i, 1] = 1
 
     def __len__(self):
-        return len(
-            self._data["labels"],
-        )
+        return len(self["labels"])
 
     def __getitem__(self, key: str):
         return self._data[key]
 
     def get_full_data(self, index: int):
-        labels = self._data["labels"][index]
-        mask = self._data["mask"][index]
-        num_words = self._data["num_words"][index]
-        adjacency = self._data["adjacency"][index]
+        labels = self["labels"][index]
+        mask = self["mask"][index]
+        num_words = self["num_words"][index]
+        adjacency = self["adjacency"][index]
 
         return {
             "labels": labels,
@@ -167,28 +170,40 @@ class StateBatch:
             "adjacency": adjacency,
         }
 
-    def step(self, node_ids, prev_node_ids, actions=None):
-        mask = self.__getitem__("mask")
-        num_words = self.__getitem__("num_words")
-        edge_dones, node_dones = check_done(mask, num_words)
-        batch_ids = np.arange(self.batch_size)
+    ## The base code of this function is from: https://github.com/tristandeleu/jax-dag-gflownet/blob/master/dag_gflownet/env.py#L96
+    def step(self, actions):
+        targets, sources = actions
+        dones = self.check_done()
+        sources, targets = sources[~dones], targets[~dones]
+ 
+        assert np.all(sources <= self["num_words"][~dones]), "Invalid head node(s): Node(s) out of range"
+        assert np.all(targets <= self["num_words"][~dones]), "Invalid dependent node(s): Node(s) out of range"
+        
+        if not np.all(self["mask"][~dones, sources, targets]):
+            raise ValueError("Invalid action(s): Already existed edge(s), Self-loop, or Causing-cycle edge(s).")
 
-        mask[1][batch_ids[~node_dones], node_ids[~node_dones]] = False
-        self._data["mask"][1] = mask[1]
+        # Update adjacency matrices
+        self._data["adjacency"][~dones, sources, targets] = 1
+        self._data["labels"][~dones, targets] = 1
+        # self["adjacency"][dones] = 0
 
-        if actions is None:
-            return 0
+        # Update transitive closure of transpose
+        source_rows = np.expand_dims(self._closure_T[~dones, sources, :], axis=1)
+        target_cols = np.expand_dims(self._closure_T[~dones, :, targets], axis=2)
+        self._closure_T[~dones] |= np.logical_and(source_rows, target_cols)  # Outer product
+        self._closure_T[dones] = np.eye(self.num_variables, dtype=np.bool_)
 
-        mask[0][batch_ids[~edge_dones], prev_node_ids[~edge_dones]] = True
-        mask[0][batch_ids[~edge_dones], 0] = False  # Ensure no outcoming edge from ROOT
-        self._data["mask"][0] = mask[0]
-        actions = actions.squeeze(-1)
-        self._data["adjacency"][batch_ids[~edge_dones], actions[~edge_dones], prev_node_ids[~edge_dones]] = 1
-        self._data["labels"][batch_ids[~edge_dones], prev_node_ids[~edge_dones]] = 1
-
-        return 1
-
-    def reset(
-        self,
-    ):
-        pass
+        # Update the mask
+        self._data["mask"] = 1 - (self._data["adjacency"] + self._closure_T)
+        num_parents = np.sum(self["adjacency"], axis=1, keepdims=True)
+        self._data["mask"] *= (num_parents < 1)
+        
+        # Exclude all undue edges
+        for batch_idx, num_word in enumerate(self["num_words"]):
+            self._data['mask'][batch_idx, num_word + 1:, :] = False
+            self._data['mask'][batch_idx, :, num_word + 1:] = False
+        
+        self._data["mask"][:, :, 0] = False 
+    
+    def check_done(self):
+        return self['adjacency'].sum(axis=-1).sum(axis=-1) == self['num_words']
