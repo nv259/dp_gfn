@@ -4,16 +4,29 @@ import random
 import warnings
 
 import hydra
+import numpy as np
+import torch
+from omegaconf import DictConfig, OmegaConf
+
 from dp_gfn.gfn import DPGFN
 from dp_gfn.utils.data import get_dataloader
 from dp_gfn.utils.misc import flatten_config
-from omegaconf import DictConfig, OmegaConf
+
+
+def set_seed(seed):
+    random.seed(seed)
+    os.environ["PYTHONHASHSEED"] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
 
 
 @hydra.main(config_path="./configs", config_name="main")
 def main(config):
     os.chdir(hydra.utils.get_original_cwd())
     config.seed = random.randint(1, 100000) if config.seed is None else config.seed
+    set_seed(config.seed)
 
     log_config = flatten_config(OmegaConf.to_container(config, resolve=True), sep="/")
     log_config = {"/".join(("config", key)): val for key, val in log_config.items()}
@@ -31,11 +44,11 @@ def main(config):
         is_train=True,
     )
     config.model.num_variables = max_num_nodes
-    config.max_number_of_words = max_num_nodes - 1 
+    config.max_number_of_words = max_num_nodes - 1
     print(OmegaConf.to_yaml(config))
     with open("hydra_config.txt", "w") as f:
         f.write(OmegaConf.to_yaml(config))
-        
+
     try:
         val_loader, _ = get_dataloader(
             path_to_conllu_file=config.train_path.replace("train", "dev"),
@@ -49,7 +62,7 @@ def main(config):
         logging.warning("No validation data found")
 
     logging.info("Initializing Algorithm")
-    algorithm = DPGFN(config=config, num_tags=num_tags, id2rel=id2rel, pretrained_path="/mnt/yth/dp_gfn/output/olds/run_bs=16_epsilon=0.05_dim=256_nlayers=3_nheads=4/model_5000.npz")
+    algorithm = DPGFN(config=config, num_tags=num_tags, id2rel=id2rel)
 
     algorithm.train(train_loader=train_loader, val_loader=val_loader)
 

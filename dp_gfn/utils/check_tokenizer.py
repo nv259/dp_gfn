@@ -14,7 +14,7 @@ class TestTokenizerDataset(BaseDataset):
             tokenizer = AutoTokenizer.from_pretrained(tokenizer)
 
         for item in self.data:
-            print(item['text'])
+            print(item["text"])
             input()
             tokens = tokenizer(item["text"], add_special_tokens=False)
             tok_num_words = get_num_words(tokens)
@@ -48,22 +48,24 @@ def isolated_test():
         tokenizer = AutoTokenizer.from_pretrained(sys.argv[3])
     except:
         tokenizer = AutoTokenizer.from_pretrained("FacebookAI/xlm-roberta-base")
-    
-    dataset = TestTokenizerDataset("/mnt/yth/dp_gfn/data/ud-treebanks-v2.14/UD_English-EWT/en_ewt-ud-train.conllu") 
+
+    dataset = TestTokenizerDataset(
+        "/mnt/yth/dp_gfn/data/ud-treebanks-v2.14/UD_English-EWT/en_ewt-ud-train.conllu"
+    )
     while True:
         text = input("Text")
         tokens = tokenizer(text, add_special_tokens=False)
 
         for item in dataset.data:
-            if text[:30] in item['text']:
-                print(item['text'])
-                print(item['num_words'])
-                
-                print(tokens.word_ids()[-1]) 
-                
+            if text[:30] in item["text"]:
+                print(item["text"])
+                print(item["num_words"])
+
+                print(tokens.word_ids()[-1])
+
         if input("stop") == "y":
             break
-          
+
 
 # print(sys.argv[1], sys.argv[2])
 if __name__ == "__main__":
