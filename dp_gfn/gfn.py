@@ -20,7 +20,7 @@ from torch.utils.data import DataLoader
 from transformers import AutoConfig, AutoTokenizer
 
 from dp_gfn.nets import bert
-from dp_gfn.nets.gflownet import gflownet_forward_fn, output_total_flow_fn
+from dp_gfn.nets.gflownet import gflownet_fn, output_total_flow_fn
 from dp_gfn.nets.initial_encoders import label_score_fn
 from dp_gfn.utils import io, masking, scores
 from dp_gfn.utils.pretrains import (
@@ -63,7 +63,7 @@ class DPGFN:
         )
 
         # Backbone
-        self.gflownet = hk.without_apply_rng(hk.transform(gflownet_forward_fn))
+        self.gflownet = hk.without_apply_rng(hk.transform(gflownet_fn))
         base_masks = masking.base_mask(self.num_variables, self.num_variables)
         self.gflownet_params = self.gflownet.init(
             self.key,
@@ -197,10 +197,10 @@ class DPGFN:
 
         golds = (golds != 0).astype(bool)
         log_R = jnp.log(
-            scores.scale_between(
-                inputs=scores.reward(
-                    complete_states["adjacency"], golds, scores.frobenius_norm_distance
-                ),
+                scores.scale_between(
+                    inputs=scores.reward(
+                        complete_states["adjacency"], golds, scores.frobenius_norm_distance
+                    ),
                 original_min=1,
                 original_max=jnp.exp(1),
                 scaled_min=3,
@@ -216,7 +216,7 @@ class DPGFN:
         states = masking.StateBatch(self.num_variables, num_words_list)
 
         traj_log_pF = jnp.zeros((len(num_words_list),), dtype=jnp.float32)
-        traj_log_pB = jnp.zeros((len(num_words_list),), dtype=jnp.float32)
+        traj_log_pB = jnp.zeros((len(num_words_list),), dtype=jnp.float32)  
 
         for step in range(self.num_variables):
             dones = states.check_done()
@@ -243,11 +243,12 @@ class DPGFN:
             log_pF_head = jnp.where(dones, jnp.zeros_like(log_pF_head), log_pF_head)
             traj_log_pF += log_pF_dep + log_pF_head
 
-            if step > 0:  # Remove the dependent (prev_action) and its link
+            if step > 0:  
                 log_pB = jnp.take_along_axis(
                     log_pBs, (prev_actions - 1)[..., jnp.newaxis], axis=1
                 ).squeeze(-1)
                 log_pB = jnp.where(prev_dones, jnp.zeros_like(log_pB), log_pB)
+                
                 traj_log_pB += log_pB
 
             states.step(np.array(actions))
@@ -357,18 +358,18 @@ class DPGFN:
 
                 if self.eval_on_train:
                     pbar.set_postfix(
-                        epsilon=f"{self.exploration_rate:.6f}",
-                        loss=f"{logs['loss']:.6f}",
+                        epsilon=f"{self.exploration_rate:.5f}",
+                        loss=f"{logs['loss']:.5f}",
                         reward=f"{np.exp(logs['log_R']):.6f}",
-                        train_loss=f"{train_loss:.6f}",
-                        val_loss=f"{val_loss:.6f}",
+                        train_loss=f"{train_loss:.5f}",
+                        val_loss=f"{val_loss:.5f}",
                     )
                 else:
                     pbar.set_postfix(
-                        epsilon=f"{self.exploration_rate:.6f}",
-                        loss=f"{logs['loss']:.6f}",
+                        epsilon=f"{self.exploration_rate:.5f}",
+                        loss=f"{logs['loss']:.5f}",
                         reward=f"{np.exp(logs['log_R']):.6f}",
-                        val_loss=f"{val_loss:.6f}",
+                        val_loss=f"{val_loss:.5f}",
                     )
                 train_losses.append(logs["loss"])
 
