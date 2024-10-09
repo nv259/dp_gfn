@@ -88,9 +88,7 @@ def collate_nx_graphs(batch):
 def np_collate_fn(batch):
     graphs = [item["graph"] for item in batch]
     text = [item["text"] for item in batch]
-    num_words = [
-        item["num_words"] for item in batch
-    ]  # TODO: ascertain num_words already contains ROOT
+    num_words = [item["num_words"] for item in batch]
 
     graphs = np.array(graphs, dtype=np.int32)
     text = text

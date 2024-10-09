@@ -205,4 +205,4 @@ def output_total_flow_fn(sent):
     Returns:
         jnp.DeviceArray: Total flow of the sentence; shape [..., 1]
     """
-    return DenseBlock(output_size=1, name="Z_flow", init_scale=2.0 / 3.0)(sent)
+    return DenseBlock(output_size=1, name="Z_flow")(sent)
