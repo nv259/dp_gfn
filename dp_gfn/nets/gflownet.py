@@ -70,7 +70,7 @@ class DPGFlowNet(hk.Module):
             )(x, labels)    
 
         dep_mask = jnp.any(mask, axis=0)
-        log_pi_dep = self.dep_policy(x.mean(axis=-2), x[1:], dep_mask[1:])
+        log_pi_dep = self.dep_policy(x[1:], dep_mask[1:])
         key, dep_id, log_pF_dep = masking.sample_action(key, log_pi_dep, dep_mask[1:], delta)
         # Offset dep_id by 1 since ROOT cannot be chosen as a dependant
         dep_id = (dep_id + 1)  
@@ -83,7 +83,7 @@ class DPGFlowNet(hk.Module):
 
         return key, (dep_id, head_id), (log_pF_dep, log_pF_head), log_pBs
 
-    def dep_policy(self, graph_emb, node_embeddings, mask):
+    def dep_policy(self, node_embeddings, mask):
         """Compute the log policy of nodes being chosen as a dependent, given the graph. The length of list of variables is offset by 1 when comparing with self.num_variables, since ROOT cannot be chosen as a dependent.
 
         Args:
@@ -94,13 +94,7 @@ class DPGFlowNet(hk.Module):
         Returns:
             (jnp.DeviceArray): Policy of nodes being chosen as a dependent P(dependent | G); shape [..., num_variables - 1]
         """
-        graph_embs = jnp.repeat(
-            graph_emb[jnp.newaxis, :], node_embeddings.shape[0], axis=0
-        )  # TODO: Renovate this
-
-        logits = jax.vmap(
-            Biaffine(num_tags=1, init_scale=self.init_scale), in_axes=(0, 0)
-        )(graph_embs, node_embeddings)
+        logits = DenseBlock(1, init_scale=self.init_scale)(node_embeddings) 
         logits = logits.squeeze(-1)
         log_pi = log_policy(logits, mask)
 
@@ -203,7 +197,7 @@ def gflownet_fn(
 
 
 def output_total_flow_fn(sent):
-    """Estimate partion function (total flow) of a sentence
+    """Estimate partion function (total flow) of a sentence.
 
     Args:
         sent (jnp.DeviceArray): Sentence embeddings; shape [..., embedding_dim]
@@ -211,4 +205,4 @@ def output_total_flow_fn(sent):
     Returns:
         jnp.DeviceArray: Total flow of the sentence; shape [..., 1]
     """
-    return DenseBlock(output_size=1, name="Z_flow", init_scale=2.0 / 12.0)(sent)
+    return DenseBlock(output_size=1, name="Z_flow", init_scale=2.0 / 3.0)(sent)
