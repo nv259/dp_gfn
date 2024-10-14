@@ -1,3 +1,4 @@
+import logging
 import os
 from collections import namedtuple
 
@@ -30,7 +31,7 @@ from dp_gfn.utils.pretrains import (
 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 GFlowNetState = namedtuple("GFlowNetState", ["optimizer", "step"])
-GFlowNetParams = namedtuple("GFlowNetParams", ["bert", "gflownet", "Z"])
+GFlowNetParams = namedtuple("GFlowNetParams", ["bert", "gfn", "logZ"])
 
 
 class DPGFN:
@@ -46,7 +47,6 @@ class DPGFN:
             self.config.model.pref_encoder.pretrained_path
         )
 
-        # Initalizer
         dummy_input_ids = jnp.ones(
             (self.batch_size, self.tokenizer.model_max_length), dtype=jnp.int32
         )
@@ -62,10 +62,9 @@ class DPGFN:
             True,
         )
 
-        # Backbone
         self.gflownet = hk.without_apply_rng(hk.transform(gflownet_fn))
         base_masks = masking.base_mask(self.num_variables, self.num_variables)
-        self.gflownet_params = self.gflownet.init(
+        self.gfn_params = self.gflownet.init(
             self.key,
             self.key,
             jax.random.normal(
@@ -83,11 +82,11 @@ class DPGFN:
             self.gflownet.apply, in_axes=(None, 0, 0, 0, 0, None, None, None, None, 0)
         )
 
-        self.Z = hk.without_apply_rng(hk.transform(output_total_flow_fn))
-        self.Z_params = self.Z.init(
+        self.logZ = hk.without_apply_rng(hk.transform(output_total_flow_fn))
+        self.logZ_params = self.logZ.init(
             self.key, jnp.ones((self.bert_config["hidden_size"],))
         )
-        self.Z = vmap(self.Z.apply, in_axes=(None, 0))
+        self.logZ = vmap(self.logZ.apply, in_axes=(None, 0))
 
         # TODO: Tags predictor
         # self.label_scorer = hk.without_apply_rng(hk.transform(label_scorer_fn))
@@ -112,7 +111,7 @@ class DPGFN:
 
         self.num_variables = self.config.model.num_variables
         self.batch_size = self.config.batch_size
-        self.save_path = self.config.save_path
+        self.dump_foldername = self.config.dump_foldername
 
         self.num_layers = self.config.model.backbone.num_layers
         self.num_heads = self.config.model.backbone.encoder_block.num_heads
@@ -135,18 +134,21 @@ class DPGFN:
         self.save_every_n = config.save_every_n
 
     def init_policy(self):
-        self.model = hk.without_apply_rng(hk.transform(GFlowNetState))
-
         gflownet_lr = self.config.algorithm.train.optimizer.gflownet_lr
         Z_lr = self.config.algorithm.train.optimizer.Z_lr
         bert_factor = self.config.algorithm.train.optimizer.bert_factor
 
-        self.Z_optimizer = optax.adam(Z_lr)
-        self.Z_state = self.Z_optimizer.init(self.Z_params)
-        self.bert_optimizer = optax.adam(bert_factor * Z_lr)
-        self.bert_state = self.bert_optimizer.init(self.bert_params)
-        self.gflownet_optimizer = optax.adam(gflownet_lr)
-        self.gflownet_state = self.gflownet_optimizer.init(self.gflownet_params)
+        self.optimizer = optax.multi_transform(
+            {
+                "bert": optax.adam(gflownet_lr * bert_factor),
+                "gfn": optax.adam(gflownet_lr),
+                "logZ": optax.adam(Z_lr),
+            },
+            ("bert", "gfn", "logZ"),
+        )
+        self.states = self.optimizer.init(
+            (self.bert_params, self.gfn_params, self.logZ_params)
+        )
 
     def init_states(self, bert_params, tokens, position_ids, training=False):
         self.key, bert_key = jax.random.split(self.key)
@@ -178,7 +180,7 @@ class DPGFN:
     def loss(
         self,
         bert_params,
-        gflownet_params,
+        gfn_params,
         Z_params,
         tokens,
         position_ids,
@@ -189,34 +191,28 @@ class DPGFN:
         node_embeddings, sentence_embeddings = self.init_states(
             bert_params, tokens, position_ids, training=True
         )
-        log_Z = jit(self.Z)(Z_params, sentence_embeddings).squeeze(axis=-1)
+        log_Z = jit(self.logZ)(Z_params, sentence_embeddings).squeeze(axis=-1)
 
         traj_log_pF, traj_log_pB, complete_states = self.sample(
-            gflownet_params, node_embeddings, num_words_list, delta
+            gfn_params, node_embeddings, num_words_list, delta
         )
 
         golds = (golds != 0).astype(bool)
         log_R = jnp.log(
-                scores.scale_between(
-                    inputs=scores.reward(
-                        complete_states["adjacency"], golds, scores.frobenius_norm_distance
-                    ),
-                original_min=1,
-                original_max=jnp.exp(1),
-                scaled_min=3,
-                scaled_max=10,
+            scores.reward(
+                complete_states["adjacency"], golds, scores.frobenius_norm_distance
             )
         )
 
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
 
-    def sample(self, gflownet_params, node_embeddings, num_words_list, delta=0.001):
+    def sample(self, gfn_params, node_embeddings, num_words_list, delta=0.001):
         key = jax.random.split(self.key, len(num_words_list))
         delta = jnp.array([delta] * len(num_words_list))
         states = masking.StateBatch(self.num_variables, num_words_list)
 
         traj_log_pF = jnp.zeros((len(num_words_list),), dtype=jnp.float32)
-        traj_log_pB = jnp.zeros((len(num_words_list),), dtype=jnp.float32)  
+        traj_log_pB = jnp.zeros((len(num_words_list),), dtype=jnp.float32)
 
         for step in range(self.num_variables):
             dones = states.check_done()
@@ -227,7 +223,7 @@ class DPGFN:
                 self.gflownet, static_argnums=(5, 6, 7, 8)
             )(
                 # key, actions, (log_pF_dep, log_pF_head), log_pBs = self.gflownet( # Toggle JIT for more comprehensible debugging
-                gflownet_params,
+                gfn_params,
                 key,
                 node_embeddings,
                 states["labels"],
@@ -243,12 +239,12 @@ class DPGFN:
             log_pF_head = jnp.where(dones, jnp.zeros_like(log_pF_head), log_pF_head)
             traj_log_pF += log_pF_dep + log_pF_head
 
-            if step > 0:  
+            if step > 0:
                 log_pB = jnp.take_along_axis(
                     log_pBs, (prev_actions - 1)[..., jnp.newaxis], axis=1
                 ).squeeze(-1)
                 log_pB = jnp.where(prev_dones, jnp.zeros_like(log_pB), log_pB)
-                
+
                 traj_log_pB += log_pB
 
             states.step(np.array(actions))
@@ -259,16 +255,22 @@ class DPGFN:
 
         return traj_log_pF, traj_log_pB, states
 
-    def train(self, train_loader: DataLoader, val_loader: DataLoader):
+    def train(self, train_loader: DataLoader, val_loader: DataLoader, debug=False):
         save_folder = os.path.join(
-            self.save_path,
-            f"run_bs={self.batch_size}_epsilon={self.exploration_rate}_dim={self.model_size}_nlayers={self.num_layers}_nheads={self.num_heads}",
+            "/".join(logging.getLogger().handlers[1].baseFilename.split("/")[:-1]),
+            self.dump_foldername,
         )
         os.makedirs(save_folder, exist_ok=True)
+        os.makedirs(os.path.join(save_folder, "model"))
+        os.makedirs(os.path.join(save_folder, "predicts"))
+        if debug:
+            os.makedirs(os.path.join(save_folder, "debug"))
+        logging.info(f"Save folder: {save_folder}")
 
         train_loader = cycle(train_loader)
         train_losses, val_losses = [], []
         train_loss, val_loss = 0, 0
+        rewards = []
 
         exploration_schedule = jax.jit(
             optax.linear_schedule(
@@ -279,106 +281,139 @@ class DPGFN:
             )
         )
 
-        with trange(self.max_steps, desc="Training") as pbar:
-            for iteration in pbar:
-                delta = exploration_schedule(iteration)
-                batch = next(train_loader)
+        try:
+            with trange(self.max_steps, desc="Training") as pbar:
+                for iteration in pbar:
+                    delta = exploration_schedule(iteration)
+                    batch = next(train_loader)
 
-                tokens = self.tokenizer(
-                    batch["text"],
-                    return_tensors="jax",
-                    padding="max_length",
-                    truncation=True,
-                    add_special_tokens=False,
-                )
-
-                position_ids = create_position_ids_from_input_ids(tokens["input_ids"])
-
-                (bert_grads, gflownet_grads, Z_grads), logs = grad(
-                    self.loss, argnums=(0, 1, 2), has_aux=True
-                )(
-                    self.bert_params,
-                    self.gflownet_params,
-                    self.Z_params,
-                    tokens,
-                    position_ids,
-                    batch["num_words"],
-                    batch["graph"],
-                    delta,
-                )
-
-                bert_updates, self.bert_state = self.bert_optimizer.update(
-                    bert_grads, self.bert_state
-                )
-                gflownet_updates, self.gflownet_state = self.gflownet_optimizer.update(
-                    gflownet_grads, self.gflownet_state
-                )
-                Z_updates, self.Z_state = self.Z_optimizer.update(Z_grads, self.Z_state)
-
-                self.bert_params = optax.apply_updates(self.bert_params, bert_updates)
-                self.gflownet_params = optax.apply_updates(
-                    self.gflownet_params, gflownet_updates
-                )
-                self.Z_params = optax.apply_updates(self.Z_params, Z_updates)
-
-                if iteration % self.eval_every_n == 0:
-                    gold = os.path.join(save_folder, f"gold_{iteration}.conllu")
-                    system = os.path.join(save_folder, f"system_{iteration}.conllu")
-                    save_predictions(
-                        algorithm=self,
-                        loader=val_loader,
-                        config=self.config,
-                        id2rel=self.id2rel,
-                        original=self.config.train_path.replace("train", "dev"),
-                        gold=gold,
-                        system=system,
+                    tokens = self.tokenizer(
+                        batch["text"],
+                        return_tensors="jax",
+                        padding="max_length",
+                        truncation=True,
+                        add_special_tokens=False,
                     )
-                    subprocess.run(["./ud_eval.py", gold, system, "-v"])
 
-                    val_loss = self.val_step(val_loader)
-                    print("loss on val:", val_loss)
-                    if len(train_losses):
-                        print("loss on train:", sum(train_losses) / len(train_losses))
-                    train_losses = []
-                    val_losses.append(val_loss)
+                    position_ids = create_position_ids_from_input_ids(
+                        tokens["input_ids"]
+                    )
+
+                    grads, logs = grad(self.loss, argnums=(0, 1, 2), has_aux=True)(
+                        self.bert_params,
+                        self.gfn_params,
+                        self.logZ_params,
+                        tokens,
+                        position_ids,
+                        batch["num_words"],
+                        batch["graph"],
+                        delta,
+                    )
+
+                    updates, self.states = self.optimizer.update(
+                        grads,
+                        self.states,
+                        (self.bert_params, self.gfn_params, self.logZ_params),
+                    )
+                    self.bert_params, self.gfn_params, self.logZ_params = (
+                        optax.apply_updates(
+                            (self.bert_params, self.gfn_params, self.logZ_params),
+                            updates,
+                        )
+                    )
+                    rewards.append(np.exp(logs["log_R"]))
+
+                    if iteration % self.eval_every_n == 0:
+                        gold = os.path.join(save_folder, "predicts", f"gold.conllu")
+                        system = os.path.join(
+                            save_folder, "predicts", f"system_{iteration}.conllu"
+                        )
+                        save_predictions(
+                            algorithm=self,
+                            loader=val_loader,
+                            config=self.config,
+                            id2rel=self.id2rel,
+                            original=self.config.train_path.replace("train", "dev"),
+                            gold=gold,
+                            system=system,
+                        )
+                        subprocess.run(["./ud_eval.py", gold, system])
+
+                        val_loss = self.val_step(val_loader)
+                        train_losses = []
+                        val_losses.append(val_loss)
+
+                        if self.eval_on_train:
+                            train_loss = self.val_step(train_loader)
+                            train_losses.append(train_loss)
+
+                        logging.info(
+                            f"Iteration {iteration}: loss = {logs['loss']:.5f} "
+                            f"--- train_loss = {train_loss:.5f} "
+                            f"--- val_loss = {val_loss:.5f} --- epsilon = {delta:.5f}"
+                        )
+                        # str_rewards = str(rewards).replace('\n', '\t')
+                        # logging.info("Rewards: " + str_rewards)
+                        logging.info(f"Mean reward: {np.concat(rewards).mean():.6f}")
+                        rewards = []
+
+                        if debug is True:
+                            np.save(
+                                os.path.join(
+                                    save_folder, "debug", f"logR_{iteration}.npy"
+                                ),
+                                logs["log_R"],
+                            )
+                            io.save(
+                                os.path.join(
+                                    save_folder, "debug", f"grads_{iteration}.npz"
+                                ),
+                                bert=grads[0],
+                                gfn=grads[1],
+                                logZ=grads[2],
+                            )
+
+                        print("-" * 50)
+
+                    if iteration % self.save_every_n == 0:
+                        io.save(
+                            os.path.join(
+                                save_folder, "model", f"model_{iteration}.npz"
+                            ),
+                            bert=self.bert_params,
+                            gfn=self.gfn_params,
+                            logZ=self.logZ_params,
+                        )
 
                     if self.eval_on_train:
-                        train_loss = self.val_step(train_loader)
-                        train_losses.append(train_loss)
+                        pbar.set_postfix(
+                            epsilon=f"{delta:.4f}",
+                            loss=f"{logs['loss']:.5f}",
+                            reward=f"{np.exp(logs['log_R']).mean():.6f}",
+                            train_loss=f"{train_loss:.5f}",
+                            val_loss=f"{val_loss:.5f}",
+                        )
+                    else:
+                        pbar.set_postfix(
+                            epsilon=f"{delta:.4f}",
+                            loss=f"{logs['loss']:.5f}",
+                            reward=f"{np.exp(logs['log_R']).mean():.6f}",
+                            val_loss=f"{val_loss:.5f}",
+                        )
 
-                    print("-" * 50)
+                    train_losses.append(logs["loss"])
 
-                if iteration % self.save_every_n == 0:
-                    io.save(
-                        os.path.join(save_folder, f"model_{iteration}.npz"),
-                        bert=self.bert_params,
-                        gflownet=self.gflownet_params,
-                        Z=self.Z_params,
-                    )
+        except Exception as e:  # Save current training information
+            io.save(
+                os.path.join(save_folder, "except.npz"),
+                bert=self.bert_params,
+                gfn=self.gfn_params,
+                logZ=self.logZ_params,
+                states=self.states,
+                step=iteration
+            )
 
-                if self.eval_on_train:
-                    pbar.set_postfix(
-                        epsilon=f"{self.exploration_rate:.5f}",
-                        loss=f"{logs['loss']:.5f}",
-                        reward=f"{np.exp(logs['log_R']):.6f}",
-                        train_loss=f"{train_loss:.5f}",
-                        val_loss=f"{val_loss:.5f}",
-                    )
-                else:
-                    pbar.set_postfix(
-                        epsilon=f"{self.exploration_rate:.5f}",
-                        loss=f"{logs['loss']:.5f}",
-                        reward=f"{np.exp(logs['log_R']):.6f}",
-                        val_loss=f"{val_loss:.5f}",
-                    )
-                train_losses.append(logs["loss"])
-
-        io.save(
-            os.path.join(save_folder, "model.npz"),
-            bert=self.bert_params,
-            gflownet=self.gflownet_params,
-            Z=self.Z_params,
-        )
+            raise e
 
         return train_losses, val_losses
 
@@ -398,8 +433,8 @@ class DPGFN:
 
             (loss, _) = self.loss(
                 self.bert_params,
-                self.gflownet_params,
-                self.Z_params,
+                self.gfn_params,
+                self.logZ_params,
                 tokens,
                 position_ids,
                 batch["num_words"],
@@ -415,9 +450,9 @@ class DPGFN:
             self.bert_params, tokens, position_ids, training=False
         )
         traj_log_pF, traj_log_pB, complete_states = self.sample(
-            self.gflownet_params, node_embeddings, num_words_list, delta=delta
+            self.gfn_params, node_embeddings, num_words_list, delta=delta
         )
-        log_Z = jit(self.Z)(self.Z_params, sentence_embeddings).squeeze(axis=-1)
+        log_Z = jit(self.logZ)(self.logZ_params, sentence_embeddings).squeeze(axis=-1)
         log = (log_Z, traj_log_pF, traj_log_pB)
 
         return complete_states, log
@@ -426,17 +461,19 @@ class DPGFN:
         params = io.load(filename)
 
         self.bert_params = params["bert"]
-        self.gflownet_params = params["gflownet"]
-        self.Z_params = params["Z"]
+        self.gfn_params = params["gfn"]
+        self.logZ_params = params["logZ"]
+
+        self.states = params["states"] if "states" in params else self.states
 
 
 def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1):
     assert log_Z.shape == traj_log_pF.shape == traj_log_pB.shape == log_R.shape
 
     error = log_Z + traj_log_pF - log_R - traj_log_pB
-    loss = jnp.mean(optax.huber_loss(error, delta=delta))
+    loss = jnp.power(error, 2).mean()
 
-    logs = {"error": error, "loss": loss, "log_R": log_R.mean().item()}
+    logs = {"error": error, "loss": loss, "log_R": log_R}
 
     return (loss, logs)
 
