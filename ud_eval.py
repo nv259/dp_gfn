@@ -501,9 +501,9 @@ def main():
 
     # Print the evaluation
     if not args.verbose and not args.counts:
-        print("LAS F1 Score: {:.2f}".format(100 * evaluation["LAS"].f1))
-        print("MLAS Score: {:.2f}".format(100 * evaluation["MLAS"].f1))
-        print("BLEX Score: {:.2f}".format(100 * evaluation["BLEX"].f1))
+        print(f"UAS: {100 * evaluation['UAS'].f1:.2f} --- LAS: {100 * evaluation['LAS'].f1:.2f}")
+        # print("MLAS Score: {:.2f}".format(100 * evaluation["MLAS"].f1))
+        # print("BLEX Score: {:.2f}".format(100 * evaluation["BLEX"].f1))
     else:
         if args.counts:
             print("Metric     | Correct   |      Gold | Predicted | Aligned")
