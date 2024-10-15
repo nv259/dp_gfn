@@ -1,3 +1,4 @@
+import pickle
 import logging
 import os
 from collections import namedtuple
@@ -35,11 +36,12 @@ GFlowNetParams = namedtuple("GFlowNetParams", ["bert", "gfn", "logZ"])
 
 
 class DPGFN:
-    def __init__(self, config, num_tags, id2rel, pretrained_path=None):
+    def __init__(self, config, num_tags, id2rel, pretrained_path=None, debug=False):
         super().__init__()
         self.config = config
         self.num_tags = num_tags
         self.id2rel = id2rel
+        self.debug = debug
 
         self.initialize_vars()
 
@@ -128,7 +130,7 @@ class DPGFN:
         self.n_grad_accumulation_steps = config.n_grad_accumulation_steps
         self.max_steps = config.max_steps
         self.eval_on_train = config.eval_on_train
-        self.exploration_rate = config.exploration_rate
+        self.exploration_scheduler = config.exploration_scheduler
         self.clip_grad = config.clip_grad
         self.eval_every_n = config.eval_every_n
         self.save_every_n = config.save_every_n
@@ -163,7 +165,7 @@ class DPGFN:
             training=training,
         )
 
-        node_embeddings = batch_token_embeddings_to_batch_word_embeddings(  # TODO: Inspect the others (first, last)
+        node_embeddings = batch_token_embeddings_to_batch_word_embeddings(
             tokens=tokens,
             token_embeddings=token_embeddings,
             agg_func=self.agg_func,
@@ -171,9 +173,7 @@ class DPGFN:
         )  # TODO: Find another way that allow parallelization -> JIT
 
         # Embeddings for computing intitial flow
-        sentence_embeddings = token_embeddings.mean(
-            1
-        )  # TODO: Using sentence embeddings might be plain
+        sentence_embeddings = token_embeddings.mean(1)
 
         return node_embeddings, sentence_embeddings
 
@@ -222,7 +222,6 @@ class DPGFN:
             key, actions, (log_pF_dep, log_pF_head), log_pBs = jit(
                 self.gflownet, static_argnums=(5, 6, 7, 8)
             )(
-                # key, actions, (log_pF_dep, log_pF_head), log_pBs = self.gflownet( # Toggle JIT for more comprehensible debugging
                 gfn_params,
                 key,
                 node_embeddings,
@@ -255,7 +254,7 @@ class DPGFN:
 
         return traj_log_pF, traj_log_pB, states
 
-    def train(self, train_loader: DataLoader, val_loader: DataLoader, debug=False):
+    def train(self, train_loader: DataLoader, val_loader: DataLoader):
         save_folder = os.path.join(
             "/".join(logging.getLogger().handlers[1].baseFilename.split("/")[:-1]),
             self.dump_foldername,
@@ -263,7 +262,7 @@ class DPGFN:
         os.makedirs(save_folder, exist_ok=True)
         os.makedirs(os.path.join(save_folder, "model"))
         os.makedirs(os.path.join(save_folder, "predicts"))
-        if debug:
+        if self.debug:
             os.makedirs(os.path.join(save_folder, "debug"))
         logging.info(f"Save folder: {save_folder}")
 
@@ -274,10 +273,10 @@ class DPGFN:
 
         exploration_schedule = jax.jit(
             optax.linear_schedule(
-                init_value=jnp.array(self.exploration_rate),
-                end_value=jnp.array(self.exploration_rate / 10.0),
-                transition_steps=self.max_steps // 2,
-                transition_begin=self.max_steps // 1000,
+                init_value=self.exploration_scheduler['init_value'],
+                end_value=self.exploration_scheduler['end_value'],
+                transition_steps=self.exploration_scheduler['transition_steps'],
+                transition_begin=self.exploration_scheduler['transition_begin'],
             )
         )
 
@@ -357,20 +356,12 @@ class DPGFN:
                         logging.info(f"Mean reward: {np.concat(rewards).mean():.6f}")
                         rewards = []
 
-                        if debug is True:
+                        if self.debug is True:
                             np.save(
                                 os.path.join(
                                     save_folder, "debug", f"logR_{iteration}.npy"
                                 ),
                                 logs["log_R"],
-                            )
-                            io.save(
-                                os.path.join(
-                                    save_folder, "debug", f"grads_{iteration}.npz"
-                                ),
-                                bert=grads[0],
-                                gfn=grads[1],
-                                logZ=grads[2],
                             )
 
                         print("-" * 50)
@@ -405,13 +396,14 @@ class DPGFN:
 
         except Exception as e:  # Save current training information
             io.save(
-                os.path.join(save_folder, "except.npz"),
+                os.path.join(save_folder, "last.npz"),
                 bert=self.bert_params,
                 gfn=self.gfn_params,
                 logZ=self.logZ_params,
-                states=self.states,
-                step=iteration
             )
+            
+            with open(os.path.join(save_folder, "opt.pkl") , 'wb') as f:
+                pickle.dump({'states': self.states, 'step': iteration}, f)
 
             raise e
 
