@@ -104,6 +104,7 @@ class BaseDataset(Dataset):
         max_number_of_words: int = 100,
         store_nx_graph: bool = False,
         return_edges: bool = False,
+        debug: bool = False,
     ):
         super(BaseDataset, self).__init__()
 
@@ -142,7 +143,7 @@ class BaseDataset(Dataset):
 
                 self.data.append(
                     {
-                        "text": "<s> " + joined_words,
+                        "text": "<s> " + joined_words if not debug else joined_words,
                         "edges": edges_list,
                         "num_words": len(words_list),
                     }

@@ -392,8 +392,8 @@ class Output(hk.Module):
 
 
 class BertModel(hk.Module):
-    def __init__(self, config, name="BertModel"):
-        super().__init__(name=config["model_type"].replace("-", ""))
+    def __init__(self, config, name="bert"):
+        super().__init__(name=name)
         self.config = config
 
     def __call__(

@@ -9,33 +9,34 @@ from dp_gfn.utils import masking
 
 class DPGFlowNet(hk.Module):
     """`GFlowNet` model used in DP-GFlowNet.
-    
-    The model uses 3 neural network architectures with the same backbone based on Linear Transformer, i.e., 
-    an architecture with 3 heads to estimate the Forward Policy P_F(G' | G) = P_F_dep(w' | G) * P_F_head(w | w', G) 
+
+    The model uses 3 neural network architectures with the same backbone based on Linear Transformer, i.e.,
+    an architecture with 3 heads to estimate the Forward Policy P_F(G' | G) = P_F_dep(w' | G) * P_F_head(w | w', G)
     and Backward Policy P_B(G | G'). The backbone is inspired from Linear Transformer (modified to imbue key, value
     with edge's information) and built by stacking `num_layers` Linear Transformers upon themselves. Each P_F heads
     is represented by a Biaffine layers, whereas P_B is approximated using a 2-layers MLP.
-    
+
     This model is then vmapped inside `gflownet_fn`. Initializing parameters and inputs are described in the vmapped version,
     therefore below is description of how `__call__` function works.
 
     Args:
-        - key (jnp.DeviceArray) : PRNGKey used for sampling actions, including: 
+        - key (jnp.DeviceArray) : PRNGKey used for sampling actions, including:
             - Choosing dependent conditioned on input graph G
             - Choosing head to create a link to previous chosen dependent.
-        
+
         - x (jnp.DeviceArray) : Abbreviation of `node_embeddings` in other docstrings, representing G as a list of nodes; positted shape [..., num_variables, model_size]
-        - labels-mask-delta : Auxiliary variables for proposed sampling strategy. 
-        
+        - labels-mask-delta : Auxiliary variables for proposed sampling strategy.
+
     Returns:
-        : The estimating flow is as follow: 
-        (1) Encoding G using `num_layers` of `LinearTransformerBlock`, 
-        (2) Extract the viable nodes that can be choosed as dependent using mask, 
+        : The estimating flow is as follow:
+        (1) Encoding G using `num_layers` of `LinearTransformerBlock`,
+        (2) Extract the viable nodes that can be choosed as dependent using mask,
         (3) Sample dependent node from log_pi_dep, which is computed by applying Biaffine on encoded embeddings given in step1,
         (4) Extract the viable nodes that can be choosed as head for the previously sampled dependent in step3,
         (5) Sample head node from log_pi_head, which is computed by applying Biaffine on encoded embeddings given in step1,
         (6) Computing entire Backward Policy pB(- | G) for all G' \in Par(G)
     """
+
     def __init__(
         self,
         num_variables=100,
@@ -44,8 +45,9 @@ class DPGFlowNet(hk.Module):
         num_heads=4,
         key_size=64,
         model_size=None,
+        name="gfn",
     ):
-        super().__init__()
+        super().__init__(name=name)
 
         self.num_variables = num_variables
         self.num_tags = num_tags + 1  # including no-edge type
@@ -67,13 +69,13 @@ class DPGFlowNet(hk.Module):
                 model_size=self.model_size,
                 init_scale=self.init_scale,
                 num_tags=self.num_tags,
-            )(x, labels)    
+            )(x, labels)
 
         dep_mask = jnp.any(mask, axis=0)
         log_pi_dep = self.dep_policy(x[1:], dep_mask[1:])
         key, dep_id, log_pF_dep = masking.sample_action(key, log_pi_dep, dep_mask[1:], delta)
         # Offset dep_id by 1 since ROOT cannot be chosen as a dependant
-        dep_id = (dep_id + 1)  
+        dep_id = dep_id + 1
 
         head_mask = mask[:, dep_id]
         log_pi_head = self.head_policy(x, dep_id, head_mask)
@@ -94,7 +96,7 @@ class DPGFlowNet(hk.Module):
         Returns:
             (jnp.DeviceArray): Policy of nodes being chosen as a dependent P(dependent | G); shape [..., num_variables - 1]
         """
-        logits = DenseBlock(1, init_scale=self.init_scale)(node_embeddings) 
+        logits = DenseBlock(1, init_scale=self.init_scale)(node_embeddings)
         logits = logits.squeeze(-1)
         log_pi = log_policy(logits, mask)
 
@@ -112,9 +114,7 @@ class DPGFlowNet(hk.Module):
             (jnp.DeviceArray): Policy of nodes being chosen as a head P(head | dependent, G); shape [..., num_variables]
         """
         deps = jnp.repeat(
-            node_embeddings[jnp.newaxis, node_id], 
-            node_embeddings.shape[-2], 
-            axis=-2
+            node_embeddings[jnp.newaxis, node_id], node_embeddings.shape[-2], axis=-2
         )
 
         logits = jax.vmap(
@@ -131,7 +131,7 @@ class DPGFlowNet(hk.Module):
         Args:
             node_embeddings (jnp.DeviceArray): List of embeddings of graph's nodes; shape [..., num_variables, embedding_dim]
             mask (np.ndarray): Mask of the valid actions; shape [..., num_variables]
-        
+
         Returns:
             jnp.DeviceArray: Backward policy of states P(G' | G), where each G' equals to G but has exactly one node removed; shape [..., num_variables]
         """
@@ -160,7 +160,15 @@ def log_policy(logits, mask):
 
 
 def gflownet_fn(
-    key, node_embeddings, labels, mask, num_tags, num_layers, num_heads, key_size, delta=0.0
+    key,
+    node_embeddings,
+    labels,
+    mask,
+    num_tags,
+    num_layers,
+    num_heads,
+    key_size,
+    delta=0.0,
 ):
     """Function wrapping the main model (`DPGFlowNet`) used.
 
@@ -205,4 +213,4 @@ def output_total_flow_fn(sent):
     Returns:
         jnp.DeviceArray: Total flow of the sentence; shape [..., 1]
     """
-    return DenseBlock(output_size=1, name="Z_flow")(sent)
+    return DenseBlock(output_size=1, name="logZ")(sent)
