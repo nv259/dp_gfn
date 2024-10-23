@@ -9,34 +9,66 @@ Original file is located at
 
 import matplotlib.pyplot as pp
 import numpy as np
-base_face = lambda: (pp.gca().add_patch(pp.Circle((0.5,0.5),0.5,fc=(.9,.9,0))),
-                     pp.gca().add_patch(pp.Circle((0.25,0.6),0.1,fc=(0,0,0))),
-                     pp.gca().add_patch(pp.Circle((0.75,0.6),0.1,fc=(0,0,0))))
+
+base_face = lambda: (
+    pp.gca().add_patch(pp.Circle((0.5, 0.5), 0.5, fc=(0.9, 0.9, 0))),
+    pp.gca().add_patch(pp.Circle((0.25, 0.6), 0.1, fc=(0, 0, 0))),
+    pp.gca().add_patch(pp.Circle((0.75, 0.6), 0.1, fc=(0, 0, 0))),
+)
 patches = {
-  'smile': lambda: pp.gca().add_patch(pp.Polygon(np.stack([np.linspace(0.2,0.8), 0.3-np.sin(np.linspace(0,3.14))*0.15]).T, closed=False, fill=False, lw=3)),
-  'frown': lambda: pp.gca().add_patch(pp.Polygon(np.stack([np.linspace(0.2,0.8), 0.15+np.sin(np.linspace(0,3.14))*0.15]).T, closed=False, fill=False, lw=3)),
-  'left_eb_down': lambda: pp.gca().add_line(pp.Line2D([0.15, 0.35], [0.75,0.7], color=(0,0,0))),
-  'right_eb_down': lambda: pp.gca().add_line(pp.Line2D([0.65, 0.85], [0.7,0.75], color=(0,0,0))),
-  'left_eb_up': lambda: pp.gca().add_line(pp.Line2D([0.15, 0.35], [0.7,0.75], color=(0,0,0))),
-  'right_eb_up': lambda: pp.gca().add_line(pp.Line2D([0.65, 0.85], [0.75,0.7], color=(0,0,0))),
+    "smile": lambda: pp.gca().add_patch(
+        pp.Polygon(
+            np.stack(
+                [np.linspace(0.2, 0.8), 0.3 - np.sin(np.linspace(0, 3.14)) * 0.15]
+            ).T,
+            closed=False,
+            fill=False,
+            lw=3,
+        )
+    ),
+    "frown": lambda: pp.gca().add_patch(
+        pp.Polygon(
+            np.stack(
+                [np.linspace(0.2, 0.8), 0.15 + np.sin(np.linspace(0, 3.14)) * 0.15]
+            ).T,
+            closed=False,
+            fill=False,
+            lw=3,
+        )
+    ),
+    "left_eb_down": lambda: pp.gca().add_line(
+        pp.Line2D([0.15, 0.35], [0.75, 0.7], color=(0, 0, 0))
+    ),
+    "right_eb_down": lambda: pp.gca().add_line(
+        pp.Line2D([0.65, 0.85], [0.7, 0.75], color=(0, 0, 0))
+    ),
+    "left_eb_up": lambda: pp.gca().add_line(
+        pp.Line2D([0.15, 0.35], [0.7, 0.75], color=(0, 0, 0))
+    ),
+    "right_eb_up": lambda: pp.gca().add_line(
+        pp.Line2D([0.65, 0.85], [0.75, 0.7], color=(0, 0, 0))
+    ),
 }
 sorted_keys = sorted(patches.keys())
 
-def draw_face(face):
-  base_face()
-  for i in face:
-    patches[i]()
-  pp.axis('scaled')
-  pp.axis('off')
 
-f, ax = pp.subplots(1,2)
+def draw_face(face):
+    base_face()
+    for i in face:
+        patches[i]()
+    pp.axis("scaled")
+    pp.axis("off")
+
+
+f, ax = pp.subplots(1, 2)
 pp.sca(ax[0])
-draw_face(['smile', 'left_eb_down', 'right_eb_down'])
+draw_face(["smile", "left_eb_down", "right_eb_down"])
 pp.sca(ax[1])
-draw_face(['frown', 'left_eb_up', 'right_eb_up'])
+draw_face(["frown", "left_eb_up", "right_eb_up"])
 
 for idx, key in enumerate(sorted_keys):
     print(idx, key)
+
 
 def has_overlap_v2(face):
     if 1 in face and 2 in face:
@@ -47,6 +79,7 @@ def has_overlap_v2(face):
         return True
 
     return False
+
 
 def face_reward_v2(face):
     if has_overlap_v2(face):
@@ -63,90 +96,115 @@ def face_reward_v2(face):
 
     return 0
 
+
 def has_overlap(face):
-  # Can't have two overlapping eyebrows!
-  if 'left_eb_down' in face and 'left_eb_up' in face:
-    return True
-  if 'right_eb_down' in face and 'right_eb_up' in face:
-    return True
-  # Can't have two overlapping mouths!
-  if 'smile' in face and 'frown' in face:
-    return True
-  return False
+    # Can't have two overlapping eyebrows!
+    if "left_eb_down" in face and "left_eb_up" in face:
+        return True
+    if "right_eb_down" in face and "right_eb_up" in face:
+        return True
+    # Can't have two overlapping mouths!
+    if "smile" in face and "frown" in face:
+        return True
+    return False
+
 
 def face_reward(face):
-  if has_overlap(face):
+    if has_overlap(face):
+        return 0
+    eyebrows = "left_eb_down", "left_eb_up", "right_eb_down", "right_eb_up"
+    # Must have exactly two eyebrows
+    if sum([i in face for i in eyebrows]) != 2:
+        return 0
+    # We want twice as many happy faces as sad faces so here we give a reward of 2 for smiles
+    if "smile" in face:
+        return 2
+    if "frown" in face:
+        return 1  # and a reward of 1 for frowns
+    # If we reach this point, there's no mouth
     return 0
-  eyebrows = 'left_eb_down', 'left_eb_up', 'right_eb_down', 'right_eb_up'
-  # Must have exactly two eyebrows
-  if sum([i in face for i in eyebrows]) != 2:
-    return 0
-  # We want twice as many happy faces as sad faces so here we give a reward of 2 for smiles
-  if 'smile' in face:
-    return 2
-  if 'frown' in face:
-    return 1  # and a reward of 1 for frowns
-  # If we reach this point, there's no mouth
-  return 0
 
-#@title
+
+# @title
 enumerated_states = []
 transitions = []
+
+
 def recursively_enumerate(s):
-  if has_overlap(s):
-    return
-  for i in sorted_keys:
-    if i not in s:
-      recursively_enumerate(s+[i])
-  enumerated_states.append(s)
-  transitions.append((s[:-1], s))
+    if has_overlap(s):
+        return
+    for i in sorted_keys:
+        if i not in s:
+            recursively_enumerate(s + [i])
+    enumerated_states.append(s)
+    transitions.append((s[:-1], s))
+
+
 recursively_enumerate([])
 unique = []
 for i in map(set, enumerated_states):
-  if i not in unique:
-    unique.append(i)
+    if i not in unique:
+        unique.append(i)
 enumerated_states = sorted(map(tuple, unique))
 
 lens = [len([i for i in enumerated_states if len(i) == j]) for j in range(4)]
 levels = [sorted([i for i in enumerated_states if len(i) == j]) for j in range(4)]
 f = pp.figure(figsize=(8, 8))
+
+
 def face_hash(face):
-  return tuple([i in face for i in sorted_keys])
+    return tuple([i in face for i in sorted_keys])
+
+
 face2pos = {}
 for i, (level, L) in enumerate(zip(levels, lens)):
-  for j, face in enumerate(level):
-    ax = f.add_axes([j/L, i/4, 1/L, 1/6])
-    draw_face(face)
-    face2pos[face_hash(face)] = (j/L+0.5/L, i/4)
-ax = f.add_axes([0,0,1,1])
+    for j, face in enumerate(level):
+        ax = f.add_axes([j / L, i / 4, 1 / L, 1 / 6])
+        draw_face(face)
+        face2pos[face_hash(face)] = (j / L + 0.5 / L, i / 4)
+ax = f.add_axes([0, 0, 1, 1])
 pp.sca(ax)
-pp.gca().set_facecolor((0,0,0,0))
-pp.xlim(0,1)
-pp.ylim(0,1)
+pp.gca().set_facecolor((0, 0, 0, 0))
+pp.xlim(0, 1)
+pp.ylim(0, 1)
 for a, b in transitions[1:]:
-  pa, pb = face2pos[face_hash(a)], face2pos[face_hash(b)]
-  if not len(b): continue
-  lb = int(pb[1] * 4)
-  la = int(pa[1] * 4)
-  ws = [1/6,1/6,0.13,0.11]
-  pp.arrow(pa[0],pa[1]+ws[la],pb[0]-pa[0],pb[1]-pa[1]-ws[lb], head_width=0.01, width=0.003, ec=(0.,0.5,0),fc=(0,0,0),
-           length_includes_head=True)
-  pp.axis('off')
+    pa, pb = face2pos[face_hash(a)], face2pos[face_hash(b)]
+    if not len(b):
+        continue
+    lb = int(pb[1] * 4)
+    la = int(pa[1] * 4)
+    ws = [1 / 6, 1 / 6, 0.13, 0.11]
+    pp.arrow(
+        pa[0],
+        pa[1] + ws[la],
+        pb[0] - pa[0],
+        pb[1] - pa[1] - ws[lb],
+        head_width=0.01,
+        width=0.003,
+        ec=(0.0, 0.5, 0),
+        fc=(0, 0, 0),
+        length_includes_head=True,
+    )
+    pp.axis("off")
 
 # !pip install dm-haiku
 
-import jax
 import haiku as hk
+import jax
 import jax.numpy as jnp
-import tqdm
 import optax
+import tqdm
+
 
 def face_to_tensor(faces):
     x = jnp.arange(0, 6)
     return jnp.array([[i in face for i in x] for face in faces]).astype(float)
 
+
 class DenseBlock(hk.Module):
-    def __init__(self, output_dim, hiddens=None, act_fn=jax.nn.leaky_relu, name='dense'):
+    def __init__(
+        self, output_dim, hiddens=None, act_fn=jax.nn.leaky_relu, name="dense"
+    ):
         super().__init__(name)
         self.output_dim = output_dim
         self.act_fn = act_fn
@@ -166,10 +224,11 @@ class DenseBlock(hk.Module):
 
         return x
 
+
 from jax import random
 
-
 MASKED_VALUE = -1e5
+
 
 def mask_logits(logits, mask):
     return mask * logits + (1 - mask) * MASKED_VALUE
@@ -217,14 +276,15 @@ def uniform_log_policy(mask, is_forward=True):
 
     return log_pi
 
+
 class TBModel(hk.Module):
     def __init__(self, hiddens=[512], act_fn=jax.nn.leaky_relu):
-        super().__init__(name='gfn')
+        super().__init__(name="gfn")
         self.hiddens = hiddens
 
     def __call__(self, key, x, mask, delta):
-        forward_logits = DenseBlock(6, self.hiddens, name='forward')(x)
-        backward_logits = DenseBlock(6, self.hiddens, name='backward')(x)
+        forward_logits = DenseBlock(6, self.hiddens, name="forward")(x)
+        backward_logits = DenseBlock(6, self.hiddens, name="backward")(x)
 
         log_pFs = self.log_policy(forward_logits, mask)
         key, action, log_pF = sample_action(key, log_pFs, mask, delta)
@@ -249,56 +309,70 @@ class TBModel(hk.Module):
 
         return log_pi
 
-def edge_flow_prediction_fn(key, x, mask, delta, hiddens=None, act_fn=jax.nn.leaky_relu):
+
+def edge_flow_prediction_fn(
+    key, x, mask, delta, hiddens=None, act_fn=jax.nn.leaky_relu
+):
     key, action, log_pF, log_pB = TBModel(hiddens, act_fn)(key, x, mask, delta)
 
     return key, action, log_pF, log_pB
 
+
 def logZ_fn(x):
-    log_Z = hk.get_parameter(name='logZ', shape=(1,), init=jnp.ones)
+    log_Z = hk.get_parameter(name="logZ", shape=(1,), init=jnp.ones)
     return log_Z
 
 
 key = jax.random.PRNGKey(0)
 face = []
-state = jnp.zeros((6, ))
+state = jnp.zeros((6,))
 delta = jnp.array(0.00)
 
 gfn = hk.without_apply_rng(hk.transform(edge_flow_prediction_fn))
 gfn_params = gfn.init(key, key, state, 1 - state, delta)
-gfn = jax.vmap(gfn.apply, in_axes=(None, 0, 0, 0, 0, ))
+gfn = jax.vmap(
+    gfn.apply,
+    in_axes=(
+        None,
+        0,
+        0,
+        0,
+        0,
+    ),
+)
 
 logZ = hk.without_apply_rng(hk.transform(logZ_fn))
 Z_params = logZ.init(key, state)
 logZ = jax.vmap(logZ.apply, in_axes=(None, 0))
 
 optimizer = optax.multi_transform(
-    {
-        'gfn': optax.adam(3e-3),
-        'logZ': optax.adam(3e-3)
-    },
-    ('gfn', 'logZ')
+    {"gfn": optax.adam(3e-3), "logZ": optax.adam(3e-3)}, ("gfn", "logZ")
 )
 opt_state = optimizer.init((gfn_params, Z_params))
+
 
 @jax.jit
 def trajectory_balance_loss(traj_log_pF, traj_log_pB, log_R, log_Z):
     log_Z = log_Z.squeeze(-1)
     return jnp.power((log_Z + traj_log_pF - log_R - traj_log_pB), 2).mean()
 
+
 def loss(key, gfn_params, Z_params, delta):
     log_Z = jax.jit(logZ)(Z_params, jnp.zeros((16, 6)))
-    
+
     if (log_Z > 2.4845).any():
-        print('debug')     
-    
+        print("debug")
+
     key, complete_states, traj_log_pF, traj_log_pB = sample(key, gfn_params, delta)
-    log_R = jnp.log(jnp.array([face_reward_v2(face) for face in complete_states])).clip(-20)
+    log_R = jnp.log(jnp.array([face_reward_v2(face) for face in complete_states])).clip(
+        -20
+    )
     error = trajectory_balance_loss(traj_log_pF, traj_log_pB, log_R, log_Z)
 
     # log_R = jnp.log(jnp.array(face_reward_v2(face) for face in complete_states))
 
     return error, (key, log_R, log_Z, error)
+
 
 def sample(key, params, delta):
     keys = jax.random.split(key, 16)
@@ -306,11 +380,13 @@ def sample(key, params, delta):
     states = jnp.zeros((16, 6))
     deltas = jnp.array([delta] * 16)
 
-    traj_log_pFs = jnp.zeros((16, ))
-    traj_log_pBs = jnp.zeros((16, ))
+    traj_log_pFs = jnp.zeros((16,))
+    traj_log_pBs = jnp.zeros((16,))
 
     for step in range(3):
-        keys, actions, log_pFs, log_pBs = jax.jit(gfn)(params, keys, states, 1 - states, deltas)
+        keys, actions, log_pFs, log_pBs = jax.jit(gfn)(
+            params, keys, states, 1 - states, deltas
+        )
         traj_log_pFs += log_pFs
 
         if step > 0:
@@ -323,13 +399,16 @@ def sample(key, params, delta):
         states = face_to_tensor(faces)
         prev_actions = actions.copy()
 
-    keys, actions, log_pFs, log_pBs = jax.jit(gfn)(params, keys, states, 1 - states, deltas)
+    keys, actions, log_pFs, log_pBs = jax.jit(gfn)(
+        params, keys, states, 1 - states, deltas
+    )
     log_pB = jnp.take_along_axis(
         log_pBs, (prev_actions)[..., jnp.newaxis], axis=1
     ).squeeze(-1)
     traj_log_pBs += log_pB
-    
+
     return keys[0], faces, traj_log_pFs, traj_log_pBs
+
 
 def train(gfn_params, Z_params, opt_state):
     losses = []
@@ -347,16 +426,18 @@ def train(gfn_params, Z_params, opt_state):
     key = jax.random.PRNGKey(0)
     for episode in tqdm.tqdm(range(50000), ncols=40):
         delta = exploration_schedule(episode)
-        grads, logs = jax.grad(loss, argnums=(1, 2), has_aux=True)(key, gfn_params, Z_params, delta)
+        grads, logs = jax.grad(loss, argnums=(1, 2), has_aux=True)(
+            key, gfn_params, Z_params, delta
+        )
 
         update, opt_state = optimizer.update(grads, opt_state, (gfn_params, Z_params))
         gfn_params, Z_params = optax.apply_updates((gfn_params, Z_params), update)
         key = logs[0]
         logZs.append(logs[2].mean().item())
-        print(' ', logs[1].mean(), logs[2].mean(), logs[3])
+        print(" ", logs[1].mean(), logs[2].mean(), logs[3])
         losses.append(logs[3].item())
 
     return losses
 
-train(gfn_params, Z_params, opt_state)
 
+train(gfn_params, Z_params, opt_state)
