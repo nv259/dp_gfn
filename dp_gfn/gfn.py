@@ -201,7 +201,7 @@ class DPGFN:
         log_R = jnp.log(
             scores.reward(
                 complete_states["adjacency"], golds, scores.frobenius_norm_distance
-            )
+            ) ** self.reward_scale_factor
         )
 
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
@@ -216,8 +216,6 @@ class DPGFN:
 
         for step in range(self.num_variables):
             dones = states.check_done()
-            if dones.all():
-                break
 
             key, actions, (log_pF_dep, log_pF_head), log_pBs = jit(
                 self.gflownet, static_argnums=(5, 6, 7, 8)
@@ -245,11 +243,14 @@ class DPGFN:
                 log_pB = jnp.where(prev_dones, jnp.zeros_like(log_pB), log_pB)
 
                 traj_log_pB += log_pB
-
+            
             states.step(np.array(actions))
             prev_dones = dones.copy()
             prev_actions = actions[0].copy()
 
+            if prev_dones.all():
+                break
+            
         self.key = key[0]
 
         return traj_log_pF, traj_log_pB, states
@@ -383,6 +384,7 @@ class DPGFN:
                             reward=f"{np.exp(logs['log_R']).mean():.6f}",
                             train_loss=f"{train_loss:.5f}",
                             val_loss=f"{val_loss:.5f}",
+                            log_Z=f"{logs['log_Z'].mean():.5f}"
                         )
                     else:
                         pbar.set_postfix(
@@ -390,6 +392,7 @@ class DPGFN:
                             loss=f"{logs['loss']:.5f}",
                             reward=f"{np.exp(logs['log_R']).mean():.6f}",
                             val_loss=f"{val_loss:.5f}",
+                            log_Z=f"{logs['log_Z'].mean():.5f}"
                         )
 
                     train_losses.append(logs["loss"])
@@ -465,7 +468,7 @@ def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1):
     error = log_Z + traj_log_pF - log_R - traj_log_pB
     loss = jnp.power(error, 2).mean()
 
-    logs = {"error": error, "loss": loss, "log_R": log_R}
+    logs = {"error": error, "loss": loss, "log_R": log_R, "log_Z": log_Z}
 
     return (loss, logs)
 
