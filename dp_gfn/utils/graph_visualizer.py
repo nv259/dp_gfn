@@ -14,7 +14,7 @@ def visualize_graphs(adjacency_matrices, save_path_prefix="outut/graph"):
     """
 
     for i, adj_matrix in enumerate(adjacency_matrices):
-        graph = nx.from_numpy_matrix(adj_matrix, create_using=nx.DiGraph)
+        graph = nx.from_numpy_array(adj_matrix, create_using=nx.DiGraph)
         plt.figure()
         nx.draw(graph, with_labels=True)
         plt.savefig(f"{save_path_prefix}_{i}.jpg")
