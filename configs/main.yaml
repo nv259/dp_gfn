@@ -32,15 +32,16 @@ algorithm:
     reward_scale_factor: 10
 
     train:
-        eval_every_n: 500
-        exploration_rate: 0.005
+        eval_every_n: 2000
+        exploration_rate: 0.0005
 
-        save_every_n: 1000
+        save_every_n: 2000
     eval:
         batch_size: 32
     
-train_path: ./data/ud-treebanks-v2.14/UD_English-Atis/en_atis-ud-train.conllu
+train_path: ./sanity-train.conllu
 save_path: ./output/
+dump_foldername: ''
 batch_size: 16
 num_workers: 8
 max_number_of_words: 100    # equal to max_number of node in train mode
