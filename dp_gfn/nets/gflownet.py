@@ -2,7 +2,7 @@ import haiku as hk
 import jax
 import jax.numpy as jnp
 
-from dp_gfn.nets.encoders import DenseBlock, LinearTransformerBlock
+from dp_gfn.nets.encoders import LinearTransformerBlock
 from dp_gfn.nets.initial_encoders import Biaffine
 from dp_gfn.utils import masking
 
@@ -95,8 +95,8 @@ class DPGFlowNet(hk.Module):
 
         Returns:
             (jnp.DeviceArray): Policy of nodes being chosen as a dependent P(dependent | G); shape [..., num_variables - 1]
-        """
-        logits = DenseBlock(1, init_scale=self.init_scale)(node_embeddings)
+        """ 
+        logits = hk.nets.MLP([256, 128, 1])(node_embeddings)
         logits = logits.squeeze(-1)
         log_pi = log_policy(logits, mask)
 
@@ -135,7 +135,7 @@ class DPGFlowNet(hk.Module):
         Returns:
             jnp.DeviceArray: Backward policy of states P(G' | G), where each G' equals to G but has exactly one node removed; shape [..., num_variables]
         """
-        logits = DenseBlock(1, init_scale=self.init_scale)(node_embeddings)
+        logits = hk.nets.MLP([256, 128, 1])(node_embeddings)
         logits = logits.squeeze(-1)
         log_pB = log_policy(logits, mask)
 
@@ -213,4 +213,4 @@ def output_total_flow_fn(sent):
     Returns:
         jnp.DeviceArray: Total flow of the sentence; shape [..., 1]
     """
-    return DenseBlock(output_size=1, name="logZ")(sent)
+    return hk.get_parameter("logZ", shape=(1,), init=jnp.ones)
