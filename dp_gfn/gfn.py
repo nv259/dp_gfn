@@ -4,6 +4,7 @@ import os
 from collections import namedtuple
 
 import numpy as np
+import matplotlib.pyplot as plt
 from tqdm import trange
 
 try:
@@ -271,6 +272,7 @@ class DPGFN:
         train_loader = cycle(train_loader)
         train_losses, val_losses = [], []
         train_loss, val_loss = 0, 0
+        log_Zs = []
         rewards = []
 
         exploration_schedule = jax.jit(
@@ -323,7 +325,9 @@ class DPGFN:
                         )
                     )
                     rewards.append(np.exp(logs["log_R"]))
-
+                    log_Zs.append(logs["log_Z"])
+                    train_losses.append(logs["loss"])
+                    
                     if iteration % self.eval_every_n == 0:
                         gold = os.path.join(save_folder, "predicts", f"gold.conllu")
                         system = os.path.join(
@@ -348,6 +352,14 @@ class DPGFN:
                             train_loss = self.val_step(train_loader)
                             train_losses.append(train_loss)
 
+
+                        fig, ax = plt.subplots(2)
+                        ax[0].plot(train_losses)
+                        ax[0].set_title("Train loss")
+                        ax[1].set_title("Estimated Z")
+                        ax[1].plot(np.exp(log_Zs))
+                        plt.savefig(os.path.join(save_folder, f"log_{iteration}.png"))
+                        
                         logging.info(
                             f"Iteration {iteration}: loss = {logs['loss']:.5f} "
                             f"--- log_Z = {logs['log_Z'].mean():.5f} "
@@ -397,7 +409,6 @@ class DPGFN:
                             log_Z=f"{logs['log_Z'].mean():.5f}"
                         )
 
-                    train_losses.append(logs["loss"])
 
         except Exception as e:  # Save current training information
             io.save(
