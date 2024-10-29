@@ -178,13 +178,12 @@ class StateBatch:
         ), "Invalid dependent node(s): Node(s) out of range"
 
         if not np.all(self["mask"][~dones, sources, targets]):
-            np.save("./log_errors/targets.npy", targets)
-            np.save("./log_errors/sources.npy", sources)
-            np.save("./log_errors/mask.npy", self["mask"])
-            np.save("./log_errors/dones.npy", self["dones"])
-            np.save("./log_errors/labels.npy", self["labels"])
-            np.save("./log_errors/adjacency.npy", self["adjacency"])
-            np.save("./log_errors/num_words.npy", self["num_words"])
+            np.save("./output/log_errors/targets.npy", targets)
+            np.save("./output/log_errors/sources.npy", sources)
+            np.save("./output/log_errors/mask.npy", self["mask"])
+            np.save("./output/log_errors/labels.npy", self["labels"])
+            np.save("./output/log_errors/adjacency.npy", self["adjacency"])
+            np.save("./output/log_errors/num_words.npy", self["num_words"])
 
             raise ValueError(
                 "Invalid action(s): Already existed edge(s), Self-loop, or Causing-cycle edge(s)."
