@@ -170,7 +170,7 @@ class DPGFN:
             token_embeddings=token_embeddings,
             agg_func=self.agg_func,
             max_word_length=self.num_variables,
-        )  # TODO: Find another way that allow parallelization -> JIT
+        )  # TODO: Find another way that allows parallelization -> JIT 
 
         # Embeddings for computing intitial flow
         sentence_embeddings = token_embeddings.mean(1)
@@ -189,7 +189,7 @@ class DPGFN:
         delta,
     ):
         node_embeddings, sentence_embeddings = self.init_states(
-            bert_params, tokens, position_ids, training=True
+            bert_params, tokens, position_ids, training=False
         )
         log_Z = jit(self.logZ)(Z_params, sentence_embeddings).squeeze(axis=-1)
 
@@ -198,11 +198,12 @@ class DPGFN:
         )
 
         golds = (golds != 0).astype(bool)
-        log_R = jnp.log(
-            scores.reward(
-                complete_states["adjacency"], golds, scores.frobenius_norm_distance
-            ) ** self.reward_scale_factor
-        )
+        log_R = jnp.log(scores.reward(complete_states["adjacency"], golds, scores.frobenius_norm_distance)).clip(-100)
+        # log_R = jnp.log(
+        #     scores.reward(
+        #         complete_states["adjacency"], golds, scores.frobenius_norm_distance
+        #     ) ** self.reward_scale_factor
+        # ).clip(-100)
 
         return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
 
@@ -349,6 +350,7 @@ class DPGFN:
 
                         logging.info(
                             f"Iteration {iteration}: loss = {logs['loss']:.5f} "
+                            f"--- log_Z = {logs['log_Z'].mean():.5f} "
                             f"--- train_loss = {train_loss:.5f} "
                             f"--- val_loss = {val_loss:.5f} --- epsilon = {delta:.5f}"
                         )

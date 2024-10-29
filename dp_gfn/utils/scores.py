@@ -5,6 +5,7 @@ from jax import jit, vmap
 
 
 def reward(predict, gold, graph_distance_fn):
+    return (1.0 - graph_distance_fn(predict, gold)) > 0.99
     return jnp.exp(1.0 - graph_distance_fn(predict, gold))
 
 
