@@ -173,9 +173,7 @@ class BaseDataset(Dataset):
                 item["edges"], num_variables=self.max_num_nodes
             )
 
-        if (
-            self.return_edges
-        ):  # cannot batch because of the discrepancy of sizes between edges_lists
+        if self.return_edges:
             return {
                 "text": item["text"],
                 "graph": G,
@@ -189,12 +187,12 @@ class BaseDataset(Dataset):
 def get_dataloader(
     path_to_conllu_file: str,
     max_number_of_words: int = 100,
-    return_edges: bool = True,
+    return_edges: bool = False,
     store_nx_graph: bool = False,
     batch_size: int = 1,
     shuffle: bool = True,
     num_workers: int = 0,
-    is_train: bool = False,
+    is_torch: bool = True,
 ):
     dataset = BaseDataset(
         path_to_conllu_file=path_to_conllu_file,
@@ -202,17 +200,17 @@ def get_dataloader(
         store_nx_graph=store_nx_graph,
         return_edges=return_edges,
     )
-
+    
+    collate_fn = collate_nx_graphs if store_nx_graph else np_collate_fn
+    if is_torch: collate_fn = None
+    
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
         shuffle=shuffle,
-        collate_fn=collate_nx_graphs if store_nx_graph else np_collate_fn,
+        collate_fn=collate_fn,
         num_workers=num_workers,
         drop_last=True,
     )
 
-    if is_train:
-        return dataloader, dataset.num_tags, dataset.max_num_nodes, dataset.id_rel
-    else:
-        return dataloader, dataset.id_rel
+    return dataloader, (dataset.id_rel, dataset.num_tags, dataset.max_num_nodes)

@@ -35,13 +35,12 @@ def main(config):
     config = DictConfig(config)
 
     logging.info("Loading Data")
-    train_loader, num_tags, max_num_nodes, id2rel = get_dataloader(
+    train_loader, (id2rel, num_tags, max_num_nodes) = get_dataloader(
         path_to_conllu_file=config.train_path,
         max_number_of_words=config.max_number_of_words,
         batch_size=config.batch_size,
         num_workers=config.num_workers,
         shuffle=True,
-        is_train=True,
     )
     config.model.num_variables = max_num_nodes
     config.max_number_of_words = max_num_nodes - 1
