@@ -8,10 +8,10 @@ train:
 
     optimizer:
         name: Adam
-        gflownet_lr: 3e-4
-        Z_lr: 1e-3
+        gflownet_lr: 1e-3
+        Z_lr: 3e-3
 
-        bert_factor: 0.5  # pretrained lr 
+        bert_factor: 0.0  # pretrained lr 
 
     lr_scheduler: 
         _target_: null  # warmup or so 
@@ -21,7 +21,7 @@ train:
         power: null
 
     exploration_scheduler: 
-        init_value: 0.
+        init_value: 0.005
         end_value: 0.
         transition_steps: 10000
         transition_begin: 5000
@@ -32,6 +32,6 @@ train:
     backward_policy: null   # fix uniform by default
     score_fn: null          # graph edit distance by default
 eval:
-    batch_size: 32
+    batch_size: 16
 
 reward_scale_factor: 10

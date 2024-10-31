@@ -29,19 +29,24 @@ model:
         # _partial_: True
 
 algorithm:
-    reward_scale_factor: 10
+    reward_scale_factor: 2
 
     train:
-        eval_every_n: 2000
-        exploration_rate: 0.0005
+        eval_every_n: 200
+
+        exploration_scheduler: 
+            init_value: 0.0005
+            end_value: 0.
+            transition_steps: 1000
+            transition_begin: 1000
 
         save_every_n: 2000
     eval:
-        batch_size: 32
+        batch_size: 16
     
-train_path: ./sanity-train.conllu
+train_path: ./data/ud-treebanks-v2.14/UD_English-EWT/en_ewt-ud-train.conllu
 save_path: ./output/
-dump_foldername: ''
+dump_foldername: 'zero_exploration/'
 batch_size: 16
 num_workers: 8
 max_number_of_words: 100    # equal to max_number of node in train mode
