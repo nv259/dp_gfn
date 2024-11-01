@@ -18,10 +18,10 @@ def mean_token_embeddings(token_embeddings, word_ids, max_word_length):
         token_embeddings * mask.unsqueeze(-1).float(),
     )
 
-    subtoken_counts = torch.zeros_like(token_embeddings[:, :, 0])
+    subtoken_counts = torch.zeros_like(word_embeddings[:, :, 0])
     subtoken_counts.scatter_add_(1, word_ids.clamp(min=0), mask.float())
     word_embeddings = torch.where(
-        subtoken_counts.unsqueeze(-1),
+        subtoken_counts.unsqueeze(-1) > 0,
         word_embeddings / subtoken_counts.unsqueeze(-1),
         torch.zeros_like(word_embeddings),
     )
@@ -29,46 +29,31 @@ def mean_token_embeddings(token_embeddings, word_ids, max_word_length):
     return word_embeddings
 
 
-def token_embeddings_to_word_embeddings(
-    tokens, token_embeddings, batch_idx, agg_func="mean", max_word_length=160
-):
-    word_embeddings = []
-    start, end = 0, 0
-
-    for word_idx in set(tokens.word_ids(batch_idx)):
-        # If token is not a valid word then break
-        if word_idx is None and end != 0:
-            break
-
-        # TODO: Address [CLS] token case
-
-        start, end = tokens.word_to_tokens(batch_idx, word_idx)
-
-        try:
-            if agg_func == "first":
-                word_embedding = token_embeddings[batch_idx, start]
-            elif agg_func == "last":
-                word_embedding = token_embeddings[batch_idx, end - 1]
-            else:
-                word_embedding = getattr(jnp, agg_func)(
-                    token_embeddings[batch_idx, start:end], axis=0
-                )
-        except:
-            raise NotImplementedError
-
-        word_embeddings.append(word_embedding)
-
-    word_embeddings = jnp.stack(word_embeddings)
-    # Padding to max_word_length
-    word_embeddings = jnp.concatenate(
+def get_word_ids_from_tokens(tokens, mask_value=-100):
+    word_ids_list = [tokens.word_ids(i) for i in range(2)]
+    word_ids = torch.tensor(
         [
-            word_embeddings,
-            token_embeddings[
-                batch_idx, end : max_word_length - word_embeddings.shape[0] + end
-            ],
+            [mask_value if val is None else val for val in word_ids]
+            for word_ids in word_ids_list
         ]
     )
+    
+    return word_ids
 
+
+def token_embeddings_to_word_embeddings(
+    token_embeddings: torch.Tensor, 
+    word_ids: torch.Tensor, 
+    agg_func="mean", 
+    max_word_length=160
+):
+    if agg_func == "first":
+        pass
+    elif agg_func == "last":
+        pass
+    elif agg_func == "mean":
+        word_embeddings = mean_token_embeddings(token_embeddings, word_ids, max_word_length)
+        
     return word_embeddings
 
 
