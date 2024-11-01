@@ -1,4 +1,32 @@
 import jax.numpy as jnp
+import torch
+
+
+def mean_token_embeddings(token_embeddings, word_ids, max_word_length):
+    batch_size, _, embedding_dim = token_embeddings.shape
+    mask = word_ids >= 0
+    word_embeddings = torch.zeros(
+        (batch_size, max_word_length, embedding_dim),
+        dtype=token_embeddings.dtype,
+        device=token_embeddings.device,
+    )
+
+    # Sum all tokens' embeddings for each word ids
+    word_embeddings.scatter_add_(
+        1,
+        word_ids.clamp(min=0).unsqueeze(-1).expand(-1, -1, embedding_dim),
+        token_embeddings * mask.unsqueeze(-1).float(),
+    )
+
+    subtoken_counts = torch.zeros_like(token_embeddings[:, :, 0])
+    subtoken_counts.scatter_add_(1, word_ids.clamp(min=0), mask.float())
+    word_embeddings = torch.where(
+        subtoken_counts.unsqueeze(-1),
+        word_embeddings / subtoken_counts.unsqueeze(-1),
+        torch.zeros_like(word_embeddings),
+    )
+
+    return word_embeddings
 
 
 def token_embeddings_to_word_embeddings(
