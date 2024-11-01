@@ -199,7 +199,7 @@ class DPGFN:
         )
 
         golds = (golds != 0).astype(bool)
-        log_R = jnp.log(scores.reward(complete_states["adjacency"], golds, scores.frobenius_norm_distance)).clip(-100)
+        log_R = jnp.log(scores.reward(complete_states["adjacency"], golds, scores.frobenius_norm_distance) + 1e-9).clip(-100)
         # log_R = jnp.log(
         #     scores.reward(
         #         complete_states["adjacency"], golds, scores.frobenius_norm_distance
@@ -345,21 +345,32 @@ class DPGFN:
                         subprocess.run(["./ud_eval.py", gold, system])
 
                         val_loss = self.val_step(val_loader)
-                        train_losses = []
                         val_losses.append(val_loss)
 
                         if self.eval_on_train:
                             train_loss = self.val_step(train_loader)
                             train_losses.append(train_loss)
 
-
-                        fig, ax = plt.subplots(2)
+                        plt.clf()
+                        plt.cla()
+                        fig, ax = plt.subplots(2, figsize=(16, 10))
                         ax[0].plot(train_losses)
                         ax[0].set_title("Train loss")
                         ax[1].set_title("Estimated Z")
                         ax[1].plot(np.exp(log_Zs))
                         plt.savefig(os.path.join(save_folder, f"log_{iteration}.png"))
+                        plt.close()
                         
+                        if iteration:
+                            fig, ax = plt.subplots(2, figsize=(16, 10))
+                            ax[0].plot(train_losses[-self.eval_every_n:])  
+                            ax[0].set_title("Train loss")
+                            ax[1].set_title("Estimated Z")
+                            ax[1].plot(np.exp(log_Zs[-self.eval_every_n:]))
+                            plt.savefig(os.path.join(save_folder, f"log_{iteration}_sub.png"))
+                            plt.close()
+                            
+
                         logging.info(
                             f"Iteration {iteration}: loss = {logs['loss']:.5f} "
                             f"--- log_Z = {logs['log_Z'].mean():.5f} "
@@ -397,7 +408,7 @@ class DPGFN:
                             loss=f"{logs['loss']:.5f}",
                             reward=f"{np.exp(logs['log_R']).mean():.6f}",
                             train_loss=f"{train_loss:.5f}",
-                            val_loss=f"{val_loss:.5f}",
+                            # val_loss=f"{val_loss:.5f}",
                             log_Z=f"{logs['log_Z'].mean():.5f}"
                         )
                     else:
@@ -405,7 +416,7 @@ class DPGFN:
                             epsilon=f"{delta:.4f}",
                             loss=f"{logs['loss']:.5f}",
                             reward=f"{np.exp(logs['log_R']).mean():.6f}",
-                            val_loss=f"{val_loss:.5f}",
+                            # val_loss=f"{val_loss:.5f}",
                             log_Z=f"{logs['log_Z'].mean():.5f}"
                         )
 
@@ -417,6 +428,10 @@ class DPGFN:
                 gfn=self.gfn_params,
                 logZ=self.logZ_params,
             )
+
+            np.save(os.path.join(save_folder, "train_losses.npy"), np.array(train_losses))
+            np.save(os.path.join(save_folder, "val_losses.npy"), np.array(val_losses))
+            np.save(os.path.join(save_folder, "log_Zs.npy"), np.array(log_Zs))
             
             with open(os.path.join(save_folder, "opt.pkl") , 'wb') as f:
                 pickle.dump({'states': self.states, 'step': iteration}, f)
