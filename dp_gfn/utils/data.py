@@ -4,7 +4,11 @@ import xml.etree.ElementTree as ET
 import conllu
 import networkx as nx
 import numpy as np
+import torch
 from torch.utils.data import DataLoader, Dataset
+from transformers import AutoTokenizer
+
+from dp_gfn.utils.pretrains import word_ids_from_tokens
 
 
 def parse_token_tree(
@@ -102,9 +106,11 @@ class BaseDataset(Dataset):
         self,
         path_to_conllu_file: str,
         max_number_of_words: int = 100,
+        pretrained_path: str = "FacebookAI/xlm-roberta-base",
         store_nx_graph: bool = False,
         return_edges: bool = False,
         debug: bool = False,
+        pre_tokenize: bool = True,
     ):
         super(BaseDataset, self).__init__()
 
@@ -112,6 +118,8 @@ class BaseDataset(Dataset):
         self.store_nx_graph = store_nx_graph
         self.max_num_nodes = 0
         self.return_edges = return_edges
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_path)
+        self.pre_tokenize = pre_tokenize
 
         self.rel_id = get_dependency_relation_dict(
             os.path.join(os.path.dirname(path_to_conllu_file), "stats.xml")
@@ -141,20 +149,39 @@ class BaseDataset(Dataset):
                 elif len(words_list) > max_number_of_words:
                     continue
 
-                self.data.append(
-                    {
-                        "text": "<s> " + joined_words if not debug else joined_words,
-                        "edges": edges_list,
-                        "num_words": len(words_list),
-                    }
+                text = (
+                    self.tokenizer.bos_token + " " + joined_words
+                    if not debug
+                    else joined_words
                 )
 
+                sample = {
+                    "text": text,
+                    "edges": edges_list,
+                    "num_words": len(words_list),
+                }
+
+                if self.pre_tokenize:
+                    tokens = self.tokenizer(
+                        text,
+                        return_tensors="pt",
+                        padding="max_length",
+                        truncation=True,
+                        add_special_tokens=False,
+                    )
+                    sample = dict(sample, **(dict(tokens)))
+                    sample["word_ids"] = word_ids_from_tokens(tokens)
+
+                    sample = {
+                        key: val.squeeze() if isinstance(val, torch.Tensor) else val
+                        for key, val in sample.items()
+                    }
+
+                self.data.append(sample)
                 self.max_num_nodes = max(self.max_num_nodes, len(words_list))
 
         if "train" in path_to_conllu_file:
-            self.max_num_nodes = (
-                min(self.max_num_nodes, max_number_of_words) + 1
-            )  # ROOT node
+            self.max_num_nodes = min(self.max_num_nodes, max_number_of_words) + 1
         else:
             self.max_num_nodes = max_number_of_words
 
@@ -173,15 +200,12 @@ class BaseDataset(Dataset):
                 item["edges"], num_variables=self.max_num_nodes
             )
 
-        if self.return_edges:
-            return {
-                "text": item["text"],
-                "graph": G,
-                "edges": item["edges"],
-                "num_words": item["num_words"],
-            }
-        else:
-            return {"text": item["text"], "graph": G, "num_words": item["num_words"]}
+        item = dict(item, **{"graph": G})
+
+        if not self.return_edges:
+            item.pop("edges", None)
+
+        return item
 
 
 def get_dataloader(
@@ -193,17 +217,20 @@ def get_dataloader(
     shuffle: bool = True,
     num_workers: int = 0,
     is_torch: bool = True,
+    pre_tokenize: bool = True
 ):
     dataset = BaseDataset(
         path_to_conllu_file=path_to_conllu_file,
         max_number_of_words=max_number_of_words,
         store_nx_graph=store_nx_graph,
         return_edges=return_edges,
+        pre_tokenize=pre_tokenize
     )
-    
+
     collate_fn = collate_nx_graphs if store_nx_graph else np_collate_fn
-    if is_torch: collate_fn = None
-    
+    if is_torch:
+        collate_fn = None
+
     dataloader = DataLoader(
         dataset,
         batch_size=batch_size,
