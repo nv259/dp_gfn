@@ -2,11 +2,45 @@ import haiku as hk
 import jax
 import jax.numpy as jnp
 
-from dp_gfn.nets.encoders import LinearTransformerBlock
+from dp_gfn.nets.encoders import MLP 
 from dp_gfn.nets.initial_encoders import Biaffine
 from dp_gfn.utils import masking
+from torch import nn
+from transformers import AutoModel, AutoTokenizer
+from dp_gfn.utils.pretrains import token_to_word_embeddings
 
 
+class DPGFlowNet(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config  
+        
+        self.bert_model = AutoModel.from_pretrained(config.initializer.pretrained_path)
+        # self.backbone = LinearTransformerBlock(config.backbone)
+        self.Z_head = MLP(config.Z_head)
+        self.forward_head = MLP(config.forward_head)
+        self.backward_head = MLP(config.backward_head)
+        
+    def forward(self, x):
+        pass
+     
+    def sample(self, ):
+        pass
+
+    def init_state(self, tokens, word_ids):
+        config = self.config.initializer
+        
+        token_embeddings = self.bert_model(**tokens)
+        word_embeddings = token_to_word_embeddings(
+            token_embeddings=token_embeddings,
+            word_ids=word_ids,
+            agg_func=config.agg_func,
+            max_word_length=config.max_word_length
+        )
+        
+        return word_embeddings
+    
+    
 class DPGFlowNet(hk.Module):
     """`GFlowNet` model used in DP-GFlowNet.
 

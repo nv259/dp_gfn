@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import numpy as np
 from transformers import AutoConfig, AutoModel
 
-from dp_gfn.utils.pretrains import create_position_ids_from_input_ids, split_into_heads
+from dp_gfn.utils.pretrains import create_position_ids_from_input_ids
 
 
 class PretrainedWeights(object):

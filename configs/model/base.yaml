@@ -9,24 +9,11 @@ common:
     activation: ReLU
     agg_func: mean
 
-pref_encoder:
-    _target_: dp_gfn.nets.initial_encoders.PrefEncoder
+initializer:
     pretrained_path: FacebookAI/xlm-roberta-base
     trainable: False
     agg_func: ${model.common.agg_func}
     max_word_length: ${max_number_of_words}
-
-state_encoder:
-    _partial_ : True
-    _target_: dp_gfn.nets.initial_encoders.StateEncoder
-    # num_variables: ${max_number_of_words}
-    # num_tags: ${num_tags}
-    # word_embedding_dim
-    node_embedding_dim: ${model.common.node_embedding_dim}
-    label_embedding_dim: ${model.common.label_embedding_dim}
-    # hidden_layers:    # in_features -> 128 (act) -> 128 (act) -> out_features
-    dropout_rate: ${model.common.dropout_rate}
-    activation: ${model.common.activation}
 
 backbone:
     _partial_: True
@@ -64,7 +51,7 @@ label_scorer:
     use_pretrained_embeddings: False    # if False, use node embeddings in state representations (head & dep)
                                         # otherwise, pretrained word embeddings are used and mapping to intermediate dim is required
 
-output_logits:
+forward_head:
     _partial_: True
     _target_: dp_gfn.nets.encoders.MLP
     input_dim: ${model.backbone.output_dim}
@@ -74,7 +61,10 @@ output_logits:
     dropout_rate: ${model.common.dropout_rate}
     activation: ${model.common.activation}
 
-output_Z:
+backward_head:
+    _partial_: True
+
+Z_head:
     _partial_: True
     _target_: dp_gfn.nets.encoders.MLP
     # input_dim: word_embedding_dim

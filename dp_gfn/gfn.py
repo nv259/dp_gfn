@@ -27,7 +27,6 @@ from dp_gfn.nets.gflownet import gflownet_fn, output_total_flow_fn
 from dp_gfn.nets.initial_encoders import label_score_fn
 from dp_gfn.utils import io, masking, scores
 from dp_gfn.utils.pretrains import (
-    batch_token_embeddings_to_batch_word_embeddings,
     create_position_ids_from_input_ids,
 )
 

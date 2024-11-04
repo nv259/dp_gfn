@@ -46,6 +46,7 @@ algorithm:
     
 train_path: ./data/ud-treebanks-v2.14/UD_English-EWT/en_ewt-ud-train.conllu
 save_path: ./output/
+pre_tokenize: False
 dump_foldername: 'zero_exploration/'
 batch_size: 16
 num_workers: 8
