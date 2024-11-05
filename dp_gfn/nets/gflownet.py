@@ -1,3 +1,6 @@
+import torch
+from torch.distributions import Categorical
+import torch.nn.functional as F
 import haiku as hk
 import jax
 import jax.numpy as jnp
@@ -8,6 +11,7 @@ from dp_gfn.utils import masking
 from torch import nn
 from transformers import AutoModel, AutoTokenizer
 from dp_gfn.utils.pretrains import token_to_word_embeddings
+from dgl.nn import EdgeGATConv
 
 
 class DPGFlowNet(nn.Module):
@@ -16,16 +20,30 @@ class DPGFlowNet(nn.Module):
         self.config = config  
         
         self.bert_model = AutoModel.from_pretrained(config.initializer.pretrained_path)
-        # self.backbone = LinearTransformerBlock(config.backbone)
+        self.backbone = None
         self.Z_head = MLP(config.Z_head)
-        self.forward_head = MLP(config.forward_head)
-        self.backward_head = MLP(config.backward_head)
+        self.forward_dep = MLP(config.forward_head.dep)
+        self.forward_head = MLP(config.forward_head.head)
+        self.backward = MLP(config.backward_head)
         
-    def forward(self, x):
-        pass
+    def forward(self, g, mask, exp_temp, rand_coef):
+        hidden = self.backbone(g, g.ndata['s0'], g.edata['s0'])
+        
+        actions, log_pF = self.forward_policy(hidden, mask, exp_temp, rand_coef)
+        log_pBs = self.backward_policy(hidden, mask)
+        
+        return actions, log_pF, log_pBs   
      
-    def sample(self, ):
-        pass
+    def forward_policy(self, hidden, mask, exp_temp=1.0, rand_coef=0.0):
+        dep_mask = torch.any(mask, axis=1)
+        logits = self.forward_dep(hidden)
+        dep_ids, log_pF_dep = masking.sample_action(logits, dep_mask, exp_temp, rand_coef)
+        
+        head_mask = mask[:, dep_ids]
+        logits = self.forward_head(hidden, dep_ids)
+        head_ids, log_pF_head = masking.sample_action(logits, head_mask, exp_temp, rand_coef) 
+        
+        return (head_ids, dep_ids), (log_pF_head, log_pF_dep)
 
     def init_state(self, tokens, word_ids):
         config = self.config.initializer
@@ -40,6 +58,9 @@ class DPGFlowNet(nn.Module):
         
         return word_embeddings
     
+    def logZ(self, x):
+        return self.Z_head(x)
+     
     
 class DPGFlowNet(hk.Module):
     """`GFlowNet` model used in DP-GFlowNet.
