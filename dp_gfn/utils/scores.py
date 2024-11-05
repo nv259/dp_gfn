@@ -3,10 +3,11 @@ from functools import partial
 import jax.numpy as jnp
 from jax import jit, vmap
 
+import torch
+
 
 def reward(predict, gold, graph_distance_fn):
     return (1.0 - graph_distance_fn(predict, gold)) > 0.99
-    return jnp.exp(1.0 - graph_distance_fn(predict, gold))
 
 
 def unlabeled_graph_edit_distance(predict, gold):
@@ -26,14 +27,10 @@ def bayesian_graph_edit_distance(predict, gold):
     pass
 
 
-# TL, DR: the smaller, the better
-@partial(vmap, in_axes=(0, 0))
 def frobenius_norm_distance(A, B):
-    numerator = jnp.linalg.norm(A - B, "fro")
-    denominator = jnp.sqrt(
-        jnp.linalg.norm(A, "fro") ** 2 + jnp.linalg.norm(B, "fro") ** 2
-    )
-
+    numerator = torch.norm(A -B , 'fro', dim=(-2, -1))
+    denominator = torch.sqrt(torch.norm(A, 'fro', dim=(-2, -1))**2 + torch.norm(B, 'fro', dim=(-2, -1))**2)
+    
     return numerator / denominator
 
 
