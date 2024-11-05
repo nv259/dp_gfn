@@ -71,7 +71,6 @@ def mask_logits(logits, mask):
 def sample_action(logits, mask, exp_temp=1.0, rand_coef=0.0):
     logits = mask_logits(logits, mask)
     probs = F.softmax(logits, dim=1)
-    print(probs)
     
     # Manipulate the original distribution 
     probs = probs ** (1 / exp_temp) 
