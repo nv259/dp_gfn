@@ -1,3 +1,4 @@
+import torch.nn.functional as F
 import jax.numpy as jnp
 import numpy as np
 from jax import random
@@ -79,37 +80,21 @@ def batch_random_choice(key, probas, mask, delta):
     return samples
 
 
-def sample_action(key, log_pi, mask, delta, ret_backward=False):
-    key, subkey1, subkey2 = random.split(key, 3)
-
-    log_uniform = uniform_log_policy(mask)
-    is_exploration = random.bernoulli(subkey1, p=delta, shape=(delta.shape))
-
-    log_pi = jnp.where(is_exploration, log_uniform, log_pi)
-
-    actions = batch_random_choice(subkey2, jnp.exp(log_pi), mask, delta)
-
-    log_pF = log_pi[actions]
-
-    if ret_backward:
-        log_pB = uniform_log_policy(mask, is_forward=False)
-        return key, actions, log_pF, log_pB
-
-    return key, actions, log_pF
-
-
-def uniform_log_policy(mask, is_forward=True):
-    num_valid_actions = jnp.sum(mask, axis=-1, keepdims=True)
-    log_pi = -jnp.log(num_valid_actions)
-
-    if is_forward:
-        log_pi = mask_logits(log_pi, mask)
-    else:
-        log_pi = log_pi.squeeze(-1)
-
-    return log_pi
-
-
+def sample_action(logits, mask, exp_temp=1.0, rand_coef=0.0):
+    probs = F.softmax(logits, dim=1)
+    
+    # Manipulate the original distribution 
+    probs = probs ** (1 / exp_temp) 
+    probs = probs / (1e-9 + probs.sum(1, keepdim=True))
+    probs = (1 - rand_coef) * probs + rand_coef * uniform_mask_logit(mask)
+    
+    # Sample from the distribution 
+    sample = probs.multinomial(1)
+    log_p = logits.log_softmax(1).gather(1, sample).squeeze(1)
+    
+    return sample, log_p
+    
+    
 class StateBatch:
     def __init__(
         self,
