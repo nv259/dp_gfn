@@ -68,20 +68,10 @@ def mask_logits(logits, mask):
     return mask * logits + (1 - mask) * MASKED_VALUE
 
 
-def batch_random_choice(key, probas, mask, delta):
-    # Sample from the distribution
-    uniform = random.uniform(key, shape=(delta.shape))
-    cum_probas = jnp.cumsum(probas, axis=-1)
-    samples = jnp.sum(cum_probas < uniform, axis=-1)
-
-    # mask = mask.reshape(mask.shape[0], -1)
-    # is_valid = jnp.take_along_axis(mask, samples, axis=1)    # TODO: Implement precautionary measure for potential failure in sampling actions
-
-    return samples
-
-
 def sample_action(logits, mask, exp_temp=1.0, rand_coef=0.0):
+    logits = mask_logits(logits, mask)
     probs = F.softmax(logits, dim=1)
+    print(probs)
     
     # Manipulate the original distribution 
     probs = probs ** (1 / exp_temp) 
@@ -93,7 +83,12 @@ def sample_action(logits, mask, exp_temp=1.0, rand_coef=0.0):
     log_p = logits.log_softmax(1).gather(1, sample).squeeze(1)
     
     return sample, log_p
-    
+
+
+def uniform_mask_logit(mask):
+    logits = mask / (1e-9 + mask.sum(-1, keepdim=True))
+    return logits 
+     
     
 class StateBatch:
     def __init__(
