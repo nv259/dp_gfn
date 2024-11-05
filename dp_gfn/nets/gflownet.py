@@ -14,11 +14,10 @@ class DPGFlowNet(nn.Module):
 
         self.bert_model = AutoModel.from_pretrained(config.initializer.pretrained_path)
         self.backbone = None
-        self.Z_head = MLP(config.Z_head)
-
+        
         self.mlp_dep = MLP(config.forward_head.dep)
         self.mlp_head = MLP(config.forward_head.head)
-
+        self.mlp_logZ = MLP(config.Z_head)
         self.mlp_backward = MLP(config.backward_head)
 
     def forward(self, g, mask, exp_temp, rand_coef):
@@ -29,21 +28,19 @@ class DPGFlowNet(nn.Module):
 
         return actions, log_pF, log_pBs
 
-    def forward_policy(self, hidden, mask, exp_temp=1.0, rand_coef=0.0):
+    def forward_policy(self, x, mask, exp_temp=1.0, rand_coef=0.0):
         dep_mask = torch.any(mask, axis=1)
-        logits = self.mlp_dep(hidden)
+        logits = self.mlp_dep(x)
         dep_ids, log_pF_dep = sample_action(logits, dep_mask, exp_temp, rand_coef)
 
         head_mask = mask[:, dep_ids]
-        logits = self.mlp_head(hidden, dep_ids)
+        logits = self.mlp_head(x, dep_ids)
         head_ids, log_pF_head = sample_action(logits, head_mask, exp_temp, rand_coef)
 
         return (head_ids, dep_ids), (log_pF_head, log_pF_dep)
 
-    def backward_logits(self, hidden):
-        logits = self.mlp_backward(hidden)
-
-        return logits
+    def backward_logits(self, x):
+        return self.mlp_backward(x)
 
     def init_state(self, tokens, word_ids):
         config = self.config.initializer
@@ -59,4 +56,4 @@ class DPGFlowNet(nn.Module):
         return word_embeddings
 
     def logZ(self, x):
-        return self.Z_head(x)
+        return self.mlp_logZ(x)
