@@ -3,9 +3,12 @@ from torch import nn
 
 
 class MLP(nn.Module):
-    def __init__(self, output_sizes, activation, dropout=0.0):
+    def __init__(self, output_sizes, activation='GELU', dropout=0.0):
         super().__init__()
-
+        
+        if isinstance(activation, str):
+            activation = getattr(nn, activation)()
+        
         layers = []
         for idx, output_size in enumerate(output_sizes[:-1]):
             layers.append(nn.Linear(output_sizes[idx - 1], output_size))
