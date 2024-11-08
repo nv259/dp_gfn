@@ -1,10 +1,11 @@
 import torch
-from dgl.nn import EdgeGATConv
-from dp_gfn.nets.encoders import MLP
-from dp_gfn.utils.masking import sample_action, mask_logits
-from dp_gfn.utils.pretrains import token_to_word_embeddings
 from torch import nn
+from dgl.nn import EdgeGATConv
 from transformers import AutoModel
+
+from dp_gfn.nets.encoders import MLP, BiAffine
+from dp_gfn.utils.masking import sample_action
+from dp_gfn.utils.pretrains import token_to_word_embeddings
 
 
 class DPGFlowNet(nn.Module):
@@ -12,13 +13,24 @@ class DPGFlowNet(nn.Module):
         super().__init__()
         self.config = config
 
+        config.forward_head.dep.output_sizes.insert(0, config.backbone.d_model)
+        # config.forward_head.head.output_sizes.insert(0, config.backbone.d_model * 2)
+        config.Z_head.output_sizes.insert(0, config.backbone.d_model)
+
         self.bert_model = AutoModel.from_pretrained(config.initializer.pretrained_path)
-        self.backbone = None
-        
-        self.mlp_dep = MLP(config.forward_head.dep)
-        self.mlp_head = MLP(config.forward_head.head)
-        self.mlp_logZ = MLP(config.Z_head)
-        self.mlp_backward = MLP(config.backward_head)
+
+        self.backbone = EdgeGATConv(
+            in_feats=self.bert_model.config.hidden_size,
+            edge_feats=config.backbone.d_model,
+            out_feats=config.backbone.d_v,
+            num_heads=config.backbone.num_heads,
+        )
+
+        self.mlp_dep = MLP(**config.forward_head.dep)
+        # self.mlp_head = MLP(**config.forward_head.head)
+        self.mlp_head = BiAffine(config.backbone.d_model, 1)
+        self.mlp_logZ = MLP(**config.Z_head)
+        self.mlp_backward = MLP(**config.backward_head)
 
     def forward(self, g, mask, exp_temp, rand_coef):
         hidden = self.backbone(g, g.ndata["s0"], g.edata["x"])
