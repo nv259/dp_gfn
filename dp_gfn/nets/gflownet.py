@@ -18,7 +18,10 @@ class DPGFlowNet(nn.Module):
         config.Z_head.output_sizes.insert(0, config.backbone.d_model)
 
         self.bert_model = AutoModel.from_pretrained(config.initializer.pretrained_path)
-
+        if not config.initializers.trainable:
+            for params in self.bert_model.parameters():
+                params.requires_grad = False
+        
         self.backbone = EdgeGATConv(
             in_feats=self.bert_model.config.hidden_size,
             edge_feats=config.backbone.d_model,
