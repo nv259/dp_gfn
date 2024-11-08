@@ -32,12 +32,12 @@ class DPGFlowNet(nn.Module):
         self.mlp_backward = MLP(**config.backward_head)
 
     def forward(self, g, mask, exp_temp, rand_coef):
-        hidden = self.backbone(g, g.ndata["s0"], g.edata["x"])
+        hidden = self.backbone(g, g.ndata["s0"])    # manually input edges' features, g.edata["x"])
 
         actions, log_pF = self.forward_policy(hidden, mask, exp_temp, rand_coef)
-        log_pBs = self.backward_logits(hidden)
+        backward_logits = self.backward_logits(hidden)
 
-        return actions, log_pF, log_pBs
+        return actions, log_pF, backward_logits
 
     def forward_policy(self, x, mask, exp_temp=1.0, rand_coef=0.0):
         dep_mask = torch.any(mask, axis=1)
