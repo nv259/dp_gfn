@@ -1,7 +1,5 @@
 import torch.nn.functional as F
-import jax.numpy as jnp
 import numpy as np
-from jax import random
 
 MASKED_VALUE = -1e5
 
@@ -21,7 +19,7 @@ def decode(encoded, num_variables):
 def batched_base_mask(
     batch_size: int,
     num_variables: int,
-    num_words_list: list[int],
+    num_words: int
 ) -> np.ndarray:
     """Generate batch of base masks for initial graph with shape [batch_size, num_variables, num_variables], i.e., batchified version of base_mask
 
@@ -36,9 +34,8 @@ def batched_base_mask(
     mask = base_mask(num_variables, num_variables)
     mask = np.repeat(mask[np.newaxis, ...], batch_size, axis=0)
 
-    for idx, num_words in enumerate(num_words_list):
-        mask[idx, num_words + 1 :, :] = False
-        mask[idx, :, num_words + 1 :] = False
+    mask[:, num_words + 1 :, :] = False
+    mask[:, :, num_words + 1 :] = False
 
     return mask
 
@@ -92,10 +89,12 @@ def uniform_mask_logit(mask):
 class StateBatch:
     def __init__(
         self,
+        batch_size,
         num_variables,
-        num_words_list,
+        num_words,
     ):
-        self.batch_size = len(num_words_list)
+        self.batch_size = batch_size
+        self.num_words = num_words
         self.num_variables = num_variables
 
         self._data = {
@@ -103,9 +102,8 @@ class StateBatch:
             "mask": batched_base_mask(
                 batch_size=self.batch_size,
                 num_variables=self.num_variables,
-                num_words_list=num_words_list,
+                num_words=num_words
             ),
-            "num_words": num_words_list,
             "adjacency": np.zeros(
                 (self.batch_size, self.num_variables, self.num_variables),
                 dtype=np.int32,
@@ -118,11 +116,11 @@ class StateBatch:
             axis=0,
         )
 
-        # Who let a sentence with only one word here???
-        for i in range(self.batch_size):
-            if self["num_words"][i] == 1:
-                self["adjacency"][i, 0, 1] = 1
-                self["labels"][i, 1] = 1
+        # # Who let a sentence with only one word here :D?
+        # for i in range(self.batch_size):
+        #     if self["num_words"][i] == 1:
+        #         self["adjacency"][i, 0, 1] = 1
+        #         self["labels"][i, 1] = 1
 
     def __len__(self):
         return len(self["labels"])
@@ -133,7 +131,7 @@ class StateBatch:
     def get_full_data(self, index: int):
         labels = self["labels"][index]
         mask = self["mask"][index]
-        num_words = self["num_words"][index]
+        num_words = self.num_words
         adjacency = self["adjacency"][index]
 
         return {
@@ -162,7 +160,7 @@ class StateBatch:
             np.save("./output/log_errors/mask.npy", self["mask"])
             np.save("./output/log_errors/labels.npy", self["labels"])
             np.save("./output/log_errors/adjacency.npy", self["adjacency"])
-            np.save("./output/log_errors/num_words.npy", self["num_words"])
+            np.save("./output/log_errors/num_words.npy", self.num_words)
 
             raise ValueError(
                 "Invalid action(s): Already existed edge(s), Self-loop, or Causing-cycle edge(s)."
@@ -187,9 +185,8 @@ class StateBatch:
         self._data["mask"] *= num_parents < 1
 
         # Exclude all undue edges
-        for batch_idx, num_word in enumerate(self["num_words"]):
-            self._data["mask"][batch_idx, num_word + 1 :, :] = False
-            self._data["mask"][batch_idx, :, num_word + 1 :] = False
+        self._data['mask'][:, self.num_words + 1 :, :] = False
+        self._data['mask'][:, :, self.num_words + 1 :] = False
 
         # Filter already linked ROOT
         self._data["mask"][:, :, 0] = False
@@ -198,4 +195,4 @@ class StateBatch:
         )
 
     def check_done(self):
-        return self["adjacency"].sum(axis=-1).sum(axis=-1) == self["num_words"]
+        return self["adjacency"].sum(axis=-1).sum(axis=-1) == self.num_words
