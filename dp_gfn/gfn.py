@@ -40,7 +40,7 @@ class DPGFN:
         self.max_number_of_words = config.max_number_of_words
 
         nodes_list = [i for i in range(self.max_number_of_words + 1)]
-        self.graph = dgl.batch(
+        self.batched_graph = dgl.batch(
             [dgl.graph((nodes_list, nodes_list)) for _ in range(self.batch_size)]
         )
 
@@ -50,8 +50,28 @@ class DPGFN:
         self.save_every_n = config.train.save_every_n
         self.reward_scale_factor = config.reward_scale_factor
 
-    def sample(self, states):
-        pass
+    def sample(self, states, exp_temp=1.0, rand_coef=0.0):
+        traj_log_pF = torch.zeros((self.batch_size,), dtype=torch.float32)
+        traj_log_pB = torch.zeros((self.batch_size,), dtype=torch.float32)
+
+        actions, log_pF, backward_logits = self.model(
+            self.batched_graph, states["mask"], exp_temp, rand_coef
+        )
+
+        for step in range(states.num_words):
+            traj_log_pF += log_pF[1] + log_pF[0]
+
+            states.step(actions)
+            prev_actions = actions.copy()
+
+            actions, log_pF, backward_logits = self.model(
+                self.batched_graph, states["mask"], exp_temp, rand_coef
+            )
+            traj_log_pB += (
+                backward_logits.log_softmax(1).gather(1, prev_actions[1]).squeeze(-1)
+            )
+
+        return states["adjacency"], traj_log_pF, traj_log_pB
 
     def train(self, train_loader: DataLoader, val_loader: DataLoader):
         save_folder = os.path.join(
@@ -89,7 +109,7 @@ class DPGFN:
                     attention_mask=batch["attention_mask"].to(device),
                     word_ids=batch["word_ids"].to(device),
                 )
-                self.graph.ndata["s0"] = word_embeddings.repeat(
+                self.batched_graph.ndata["s0"] = word_embeddings.repeat(
                     self.batch_size, 1, 1
                 ).reshape(-1, self.model.bert_model.config.hidden_size)
 
