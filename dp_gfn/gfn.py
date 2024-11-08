@@ -9,19 +9,14 @@ import numpy as np
 from tqdm import trange
 
 import torch
-import torch.optim as optim
 from torch.utils.data import DataLoader
+
+from dp_gfn.nets.gflownet import DPGFlowNet
 
 try:
     from evaluation import save_predictions
 except:
     pass
-
-
-
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-GFlowNetState = namedtuple("GFlowNetState", ["optimizer", "step"])
-GFlowNetParams = namedtuple("GFlowNetParams", ["bert", "gfn", "logZ"])
 
 
 class DPGFN:
@@ -32,18 +27,24 @@ class DPGFN:
         self.id2rel = id2rel
         self.debug = debug
 
-        self.initialize_vars()
-        self.init_policy()
+        self.initialize_vars(config)
+        self.model = DPGFlowNet(config.model) 
+        self.initialize_policy(config.algorithm)
 
         if pretrained_path is not None:
             self.load_weights(pretrained_path)
 
-    def initialize_vars(self):
-        pass
-    
-    def init_policy(self):
-        pass
-
+    def initialize_vars(self, config):
+        self.dump_foldername = config.dump_foldername
+        self.max_number_of_words = config.max_number_of_words
+        
+        config = config.algorithm
+        self.max_steps = config.train.max_steps
+        self.eval_every_n = config.train.eval_every_n
+        self.save_every_n = config.train.save_every_n
+        self.reward_scale_factor = config.reward_scale_factor
+   
+        
     def sample(
         self,
     ):
@@ -66,6 +67,21 @@ class DPGFN:
         train_loss, val_loss = 0, 0
         log_Zs = []
         rewards = []
+            
+        with trange(self.max_step, desc="Training") as pbar:
+            for iteration in pbar:
+                batch = next(train_loader)
+                
+                # sample
+                
+                # calculate loss
+                
+                # update parameter
+                
+                pbar.set_postfix(
+                    
+                ) 
+            
 
         return train_losses, val_losses
 
