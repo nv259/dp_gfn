@@ -49,6 +49,19 @@ class DPGFN:
         self.eval_every_n = config.train.eval_every_n
         self.save_every_n = config.train.save_every_n
         self.reward_scale_factor = config.reward_scale_factor
+        
+    def initialize_policy(self, config):
+        config = config.train
+        
+        bert_params = [params for name, params in self.model.named_parameters() if 'bert' in name]
+        logZ_params = [params for name, params in self.model.named_parameters() if 'logZ' in name]
+        gfn_params = [params for name, params in self.model.named_parameters() if ('bert' not in name) and ('logZ' not in name)]
+        
+        self.optimizer = torch.optim.Adam([
+            {'params': bert_params, 'lr': config.optimizer.gfn_lr * config.optimizer.bert_factor},
+            {'params': logZ_params, 'lr': config.optimizer.Z_lr},
+            {'params': gfn_params, 'lr': config.optimizer.gfn_lr},
+        ])
 
     def sample(self, states, exp_temp=1.0, rand_coef=0.0):
         traj_log_pF = torch.zeros((self.batch_size,), dtype=torch.float32)
