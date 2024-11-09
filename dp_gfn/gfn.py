@@ -29,6 +29,7 @@ class DPGFN:
 
         self.initialize_vars(config)
         self.model = DPGFlowNet(config.model)
+        self.model = self.model.to(self.device)
         self.initialize_policy(config.algorithm)
 
         if pretrained_path is not None:
@@ -43,6 +44,9 @@ class DPGFN:
         self.batched_graph = dgl.batch(
             [dgl.graph((nodes_list, nodes_list)) for _ in range(self.batch_size)]
         )
+        
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.batched_graph = self.batched_graph.to(self.device)
 
         config = config.algorithm
         self.max_steps = config.train.max_steps
@@ -68,7 +72,7 @@ class DPGFN:
         traj_log_pB = torch.zeros((self.batch_size,), dtype=torch.float32)
 
         actions, log_pF, backward_logits = self.model(
-            self.batched_graph, states["mask"], exp_temp, rand_coef
+            self.batched_graph, torch.tensor(states["mask"]).to(self.device), exp_temp, rand_coef
         )
 
         for step in range(states.num_words):
@@ -78,7 +82,7 @@ class DPGFN:
             prev_actions = actions.copy()
 
             actions, log_pF, backward_logits = self.model(
-                self.batched_graph, states["mask"], exp_temp, rand_coef
+                self.batched_graph, torch.tensor(states["mask"]).to(self.device), exp_temp, rand_coef
             )
             traj_log_pB += (
                 backward_logits.log_softmax(1).gather(1, prev_actions[1]).squeeze(-1)
@@ -98,16 +102,13 @@ class DPGFN:
             os.makedirs(os.path.join(save_folder, "debug"))
         logging.info(f"Save folder: {save_folder}")
 
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(device)
-
         train_loader = cycle(train_loader)
         train_losses, val_losses = [], []
         train_loss, val_loss = 0, 0
         log_Zs = []
         rewards = []
 
-        with trange(self.max_step, desc="Training") as pbar:
+        with trange(self.max_steps, desc="Training") as pbar:
             for iteration in pbar:
                 batch = next(train_loader)
 
@@ -118,15 +119,15 @@ class DPGFN:
                     batch["num_words"][0].item(),
                 )
                 word_embeddings = self.model.init_state(
-                    input_ids=batch["input_ids"].to(device),
-                    attention_mask=batch["attention_mask"].to(device),
-                    word_ids=batch["word_ids"].to(device),
+                    input_ids=batch["input_ids"].to(self.device),
+                    attention_mask=batch["attention_mask"].to(self.device),
+                    word_ids=batch["word_ids"].to(self.device),
                 )
                 self.batched_graph.ndata["s0"] = word_embeddings.repeat(
                     self.batch_size, 1, 1
                 ).reshape(-1, self.model.bert_model.config.hidden_size)
 
-                log_Z = self.model.logZ(batch["num_words"])
+                log_Z = self.model.logZ(batch["num_words"].to(torch.float32).to(self.device))
                 complete_states, traj_log_pF, traj_log_pB = self.sample(state)
                 log_R = torch.log(
                     scores.reward(

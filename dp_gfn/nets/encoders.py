@@ -11,6 +11,8 @@ class MLP(nn.Module):
         
         layers = []
         for idx, output_size in enumerate(output_sizes[:-1]):
+            if idx == 0: continue
+            
             layers.append(nn.Linear(output_sizes[idx - 1], output_size))
             layers.append(activation)
         layers.append(nn.Linear(output_sizes[-2], output_sizes[-1]))

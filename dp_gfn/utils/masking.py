@@ -62,8 +62,8 @@ def base_mask(
 
 
 def mask_logits(logits, mask):
-    return mask * logits + (1 - mask) * MASKED_VALUE
-
+    return mask * logits + ~mask * MASKED_VALUE
+     
 
 def sample_action(logits, mask, exp_temp=1.0, rand_coef=0.0):
     logits = mask_logits(logits, mask)
