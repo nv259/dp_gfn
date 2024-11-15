@@ -35,3 +35,62 @@ class LinearAttention(nn.Module):
         V = torch.einsum("nlhd,nhmd,nlh->nlhm", Q, KV, Z)
 
         return V.contiguous()
+
+
+class RelationAwareAttention(nn.Module):
+    def __init__(self, embed_dim, num_heads, num_relations=3, dropout=0.0):
+        super().__init__()
+        
+        self.embed_dim = embed_dim
+        self.num_heads = num_heads
+        self.dim_per_head = embed_dim // num_heads
+        self.num_relations = num_relations
+        
+        self.query_head = nn.Linear(embed_dim, embed_dim)
+        self.key_head = nn.Linear(embed_dim, embed_dim)
+        self.value_head = nn.Linear(embed_dim, embed_dim)
+        
+        self.relation_embedding_k = nn.Embedding(num_relations, self.dim_per_head, padding_idx=0)
+        self.relation_embedding_v = nn.Embedding(num_relations, self.dim_per_head, padding_idx=0)
+        
+        self.dropout = nn.Dropout(dropout)
+        
+    def forward(self, query, key, value, graph_relations):
+        """Generate new embeddings using attention mechanism for query, key, value and graph relations
+
+        Args:
+            query (torch.Tensor): Embeddings of query; shape [batch_size, seq_len, embed_dim]
+            key (torch.Tensor): Embeddings of key; shape [batch_size, seq_len, embed_dim]
+            value (torch.Tensor): Embeddings of value; shape [batch_size, seq_len, embed_dim])
+            graph_relations (torch.Tensor): Adjacency matrix of graph; shape [batch_size, seq_len, seq_len]
+
+        Returns:
+            torch.Tensor: New embeddings; shape [batch_size, seq_len, embed_dim]
+        """
+        queries = self.query_head(query)
+        keys = self.key_head(key)
+        values = self.value_head(value)
+        
+        queries = split_into_heads(queries, self.num_heads)
+        keys = split_into_heads(keys, self.num_heads)
+        values = split_into_heads(values, self.num_heads)
+
+        # b: batch size
+        # s: query_seq_len (source)
+        # t: key_seq_len (target)
+        # h: num_heads
+        # d: dim_per_head 
+        QK = torch.einsum("bshd,bthd->bhst", queries, keys) # Q.K^T
+        E_k = self.relation_embedding_k(graph_relations)
+        QE = torch.einsum("bshd,bstd->bhst", queries, E_k)  # Q.(Ek)^T TODO: Check for potential risk (1)
+        Q_KE = (QK + QE) / torch.sqrt(keys.shape[-1])
+        
+        e = nn.Softmax(dim=-1)(Q_KE)
+        e = self.dropout(e)
+        
+        eV = torch.einsum("bhst,bthd->bshd", e, values) # e.V  
+        Ev = self.relation_embedding_v(graph_relations)
+        eE = torch.einsum("bhst,bstd->bshd", e, Ev) # e.(Ev) TODO: Check for potential risk (2)
+        out = eV + eE
+        
+        return out.reshape(query.shape)
