@@ -15,7 +15,8 @@ class LinearAttention(nn.Module):
         self.query_head = nn.Linear(embed_dim, embed_dim)
         self.key_head = nn.Linear(embed_dim, embed_dim)
         self.value_head = nn.Linear(embed_dim, embed_dim)
-
+        self.output = nn.Linear(embed_dim, embed_dim)
+        
         self.dropout = nn.Dropout(dropout)
 
     def forward(self, query, key, value):
@@ -33,8 +34,9 @@ class LinearAttention(nn.Module):
         KV = torch.einsum("nshd,nshm->nhmd", K, values)
         Z = 1 / (torch.einsum("nlhd,nhd->nlh", Q, K.sum(dim=1)) + self.eps)
         V = torch.einsum("nlhd,nhmd,nlh->nlhm", Q, KV, Z)
-
-        return V.contiguous()
+        V = V.reshape(query.shape)
+        
+        return self.output(V.contiguous())
 
 
 class RelationAwareAttention(nn.Module):
@@ -49,6 +51,7 @@ class RelationAwareAttention(nn.Module):
         self.query_head = nn.Linear(embed_dim, embed_dim)
         self.key_head = nn.Linear(embed_dim, embed_dim)
         self.value_head = nn.Linear(embed_dim, embed_dim)
+        self.output = nn.Linear(embed_dim, embed_dim)
         
         self.relation_embedding_k = nn.Embedding(num_relations, self.dim_per_head, padding_idx=0)
         self.relation_embedding_v = nn.Embedding(num_relations, self.dim_per_head, padding_idx=0)
@@ -56,7 +59,10 @@ class RelationAwareAttention(nn.Module):
         self.dropout = nn.Dropout(dropout)
         
     def forward(self, query, key, value, graph_relations):
-        """Generate new embeddings using attention mechanism for query, key, value and graph relations
+        """Generate new embeddings using attention mechanism for query, key, value and graph relations.
+        
+        $$ V'_i = \sum_{j} e_{ij} (V_j + E_{ij}^v) $$
+        , where $e_{ij} = \textit{softmax}(Q_i.(K_j^T + E_{ij}^k) / \sqrt{d_k})$
 
         Args:
             query (torch.Tensor): Embeddings of query; shape [batch_size, seq_len, embed_dim]
@@ -93,4 +99,6 @@ class RelationAwareAttention(nn.Module):
         eE = torch.einsum("bhst,bstd->bshd", e, Ev) # e.(Ev) TODO: Check for potential risk (2)
         out = eV + eE
         
-        return out.reshape(query.shape)
+        out = out.reshape(query.shape)
+         
+        return self.output(out)
