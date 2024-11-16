@@ -47,6 +47,7 @@ class RelationAwareAttention(nn.Module):
         self.num_heads = num_heads
         self.dim_per_head = embed_dim // num_heads
         self.num_relations = num_relations
+        self.scale = self.dim_per_head ** -0.5
         
         self.query_head = nn.Linear(embed_dim, embed_dim)
         self.key_head = nn.Linear(embed_dim, embed_dim)
@@ -89,7 +90,7 @@ class RelationAwareAttention(nn.Module):
         QK = torch.einsum("bshd,bthd->bhst", queries, keys) # Q.K^T
         E_k = self.relation_embedding_k(graph_relations)
         QE = torch.einsum("bshd,bstd->bhst", queries, E_k)  # Q.(Ek)^T TODO: Check for potential risk (1)
-        Q_KE = (QK + QE) / torch.sqrt(keys.shape[-1])
+        Q_KE = (QK + QE) * self.scale
         
         e = nn.Softmax(dim=-1)(Q_KE)
         e = self.dropout(e)
@@ -99,6 +100,10 @@ class RelationAwareAttention(nn.Module):
         eE = torch.einsum("bhst,bstd->bshd", e, Ev) # e.(Ev) TODO: Check for potential risk (2)
         out = eV + eE
         
-        out = out.reshape(query.shape)
+        out = out.reshape(
+            graph_relations.shape[0],
+            graph_relations.shape[1],
+            self.embed_dim
+        )
          
         return self.output(out)
