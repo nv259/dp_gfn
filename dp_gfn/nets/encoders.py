@@ -77,9 +77,11 @@ class TransformerEncoder(nn.Module):
     def __init__(self, n_layers, embed_dim, n_heads, num_relations=3, dropout=0.0):
         super().__init__()
         
-        self.layers = [TransformerEncoderLayer(embed_dim, n_heads, num_relations, dropout)
-                       for _ in range(n_layers)]
-        self.layers = nn.Sequential(*self.layers)
+        self.layers = nn.ModuleList([TransformerEncoderLayer(embed_dim, n_heads, num_relations, dropout)
+                       for _ in range(n_layers)])
         
     def forward(self, x, graph_relations):
-        return self.layers(x, graph_relations)
+        for layer in self.layers:
+            x = layer(x, graph_relations)
+            
+        return x
