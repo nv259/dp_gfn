@@ -1,5 +1,7 @@
 import torch
 from torch import nn
+from dp_gfn.nets.attention import LinearAttention, RelationAwareAttention
+
 
 
 class MLP(nn.Module):
@@ -51,3 +53,21 @@ class BiAffine(nn.Module):
         S = Rh @ self.U @ Rd.transpose(-1, -2)
 
         return S.squeeze(1)
+
+
+class TransformerEncoderLayer(nn.Module):
+    def __init__(self, embed_dim, n_heads, num_relations=3, dropout=0.0):
+        super().__init__()
+        
+        self.attention = RelationAwareAttention(embed_dim, n_heads, num_relations, dropout)
+        self.attn_layer_norm = nn.LayerNorm(embed_dim)
+        self.ffn = MLP([embed_dim, embed_dim * 2, embed_dim])
+        self.ffn_layer_norm = nn.LayerNorm(embed_dim)
+        
+    def forward(self, x, graph_relations):
+        x = x + self.attention(x, x, x, graph_relations)
+        x = self.attn_layer_norm(x)
+        x = x + self.ffn(x)
+        x = self.ffn_layer_norm(x)
+        
+        return x
