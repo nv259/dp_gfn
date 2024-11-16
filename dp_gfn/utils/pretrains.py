@@ -78,3 +78,16 @@ def create_position_ids_from_input_ids(input_ids, padding_idx=1):
         incremental_indices = torch.cumsum(mask, axis=1).astype("i4") * mask
 
     return incremental_indices.astype("i4") + padding_idx
+
+
+def split_into_heads(x, num_heads):
+    assert x.shape[-1] % num_heads == 0, "num_heads must be divisable by embedding_dim"
+    return torch.reshape(
+        x,
+        [
+            x.shape[0],  # batch_size
+            x.shape[1],  # seq_len
+            num_heads,
+            x.shape[2] // num_heads,
+        ],
+    )
