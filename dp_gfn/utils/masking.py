@@ -96,6 +96,7 @@ class StateBatch:
         self.batch_size = batch_size
         self.num_words = num_words
         self.num_variables = num_variables
+        self.indices = np.arange(self.batch_size)
 
         self._data = {
             "labels": np.zeros((self.batch_size, self.num_variables), dtype=np.int32),
@@ -108,6 +109,10 @@ class StateBatch:
                 (self.batch_size, self.num_variables, self.num_variables),
                 dtype=np.int32,
             ),
+            "relations": np.zeros(
+                (self.batch_size, self.num_variables, self.num_variables),
+                dtype=np.int32,
+            )
         }
 
         self._closure_T = np.repeat(
@@ -115,7 +120,12 @@ class StateBatch:
             self.batch_size,
             axis=0,
         )
-
+        
+        # Exclude incoming edges to ROOT
+        self._closure_T[:, :, 0] = True
+        self._closure_T[:, self.num_words + 1 :, :] = True
+        self._closure_T[:, :, self.num_words + 1 :] = True
+        
         # # Who let a sentence with only one word here :D?
         # for i in range(self.batch_size):
         #     if self["num_words"][i] == 1:
@@ -143,18 +153,16 @@ class StateBatch:
 
     ## The base code of this function is from: https://github.com/tristandeleu/jax-dag-gflownet/blob/master/dag_gflownet/env.py#L96
     def step(self, actions):
-        targets, sources = actions
-        dones = self.check_done()
-        sources, targets = sources[~dones], targets[~dones]
+        sources, targets = actions[:, 0], actions[:, 1]
 
         assert np.all(
-            sources <= self["num_words"][~dones]
+            sources <= self.num_words
         ), "Invalid head node(s): Node(s) out of range"
         assert np.all(
-            targets <= self["num_words"][~dones]
+            targets <= self.num_words
         ), "Invalid dependent node(s): Node(s) out of range"
 
-        if not np.all(self["mask"][~dones, sources, targets]):
+        if not np.all(self["mask"][self.indices, sources, targets]):
             np.save("./output/log_errors/targets.npy", targets)
             np.save("./output/log_errors/sources.npy", sources)
             np.save("./output/log_errors/mask.npy", self["mask"])
@@ -167,32 +175,30 @@ class StateBatch:
             )
 
         # Update adjacency matrices
-        self._data["adjacency"][~dones, sources, targets] = 1
-        self._data["labels"][~dones, targets] = 1
-        # self["adjacency"][dones] = 0
+        self._data["adjacency"][self.indices, sources, targets] = 1
+        self._data["relations"][self.indices, sources, targets] = 1
+        self._data["relations"][self.indices, targets, sources] = 2
+        self._data["labels"][self.indices, targets] = 1
 
         # Update transitive closure of transpose
-        source_rows = np.expand_dims(self._closure_T[~dones, sources, :], axis=1)
-        target_cols = np.expand_dims(self._closure_T[~dones, :, targets], axis=2)
-        self._closure_T[~dones] |= np.logical_and(
+        source_rows = np.expand_dims(self._closure_T[self.indices, sources, :], axis=1)
+        target_cols = np.expand_dims(self._closure_T[self.indices, :, targets], axis=2)
+        self._closure_T |= np.logical_and(
             source_rows, target_cols
         )  # Outer product
-        self._closure_T[dones] = np.eye(self.num_variables, dtype=np.bool_)
+        # self._closure_T = np.eye(self.num_variables, dtype=np.bool_)
 
         # Update the mask
         self._data["mask"] = 1 - (self._data["adjacency"] + self._closure_T)
         num_parents = np.sum(self["adjacency"], axis=1, keepdims=True)
         self._data["mask"] *= num_parents < 1
 
-        # Exclude all undue edges
-        self._data['mask'][:, self.num_words + 1 :, :] = False
-        self._data['mask'][:, :, self.num_words + 1 :] = False
-
         # Filter already linked ROOT
-        self._data["mask"][:, :, 0] = False
         self._data["mask"][:, 0] *= np.logical_not(
             np.any(self["adjacency"][:, 0], axis=1, keepdims=True)
         )
+        
+        assert np.all(0 <= self._data['mask']) and np.all(self._data['mask'] <= 1), "Invalid mask" 
 
     def check_done(self):
         return self["adjacency"].sum(axis=-1).sum(axis=-1) == self.num_words
