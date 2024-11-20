@@ -28,7 +28,10 @@ def bayesian_graph_edit_distance(predict, gold):
 
 
 def frobenius_norm_distance(A, B):
-    numerator = torch.norm(A -B , 'fro', dim=(-2, -1))
+    batch_size, num_variables, _ = A.shape
+    B = B[:, :num_variables, :num_variables].expand((batch_size, -1, -1))
+    
+    numerator = torch.norm(A - B, 'fro', dim=(-2, -1))
     denominator = torch.sqrt(torch.norm(A, 'fro', dim=(-2, -1))**2 + torch.norm(B, 'fro', dim=(-2, -1))**2)
     
     return numerator / denominator
