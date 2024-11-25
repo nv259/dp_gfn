@@ -1,10 +1,6 @@
 import logging
 import os
-import pickle
-import subprocess
 
-import dgl
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -76,6 +72,7 @@ class DPGFN:
             traj_log_pF += log_pF[1] + log_pF[0]
 
             np_actions = actions.cpu().numpy()
+            print(np_actions)
             states.step(np_actions)
             prev_actions = actions.clone()
 
@@ -107,7 +104,6 @@ class DPGFN:
 
         train_loader = cycle(train_loader)
         train_losses, val_losses = [], []
-        train_loss, val_loss = 0, 0
         log_Zs = []
         rewards = []
 
@@ -145,7 +141,12 @@ class DPGFN:
                 loss.backward()
                 self.optimizer.step()
 
-                pbar.set_postfix()
+                train_losses.append(sum(logs['loss'])/self.batch_size)
+                pbar.set_postfix(
+                    loss=f"{train_losses[-1]:.5f}",
+                    reward=f"{np.exp(logs['log_R']).mean():.6f}",
+                    Z=f"{np.exp(logs['log_Z']):.5f}",
+                )
 
         return train_losses, val_losses
 

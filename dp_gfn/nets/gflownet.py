@@ -70,7 +70,8 @@ class DPGFlowNet(nn.Module):
             token_embeddings=token_embeddings,
             word_ids=word_ids,
             agg_func=config.agg_func,
-            max_word_length=attention_mask.sum(-1).item(),
+            max_word_length=max(word_ids[0]).item() + 1,
+            # max_word_length=attention_mask.sum(-1).item(),
         )
         
         # Map to intermediate dimension
