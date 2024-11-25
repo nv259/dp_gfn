@@ -2,75 +2,57 @@ _target_: dp_gfn.nets.gflownet.DPGFlowNet
 
 # common hyperparams (all sub-models will inherit these hyperparams if not specified)
 common:
-    node_embedding_dim: 128
-    label_embedding_dim: 128
     hidden_layers: [256, 128]
-    dropout_rate: 0.1
+    dropout: 0.0
     activation: ReLU
-    agg_func: mean
 
 initializer:
     pretrained_path: FacebookAI/xlm-roberta-base
     trainable: False
-    agg_func: ${model.common.agg_func}
+    agg_func: mean
     max_word_length: ${max_number_of_words}
 
 backbone:
-    _partial_: True
-    _target_: dp_gfn.nets.encoders.Backbone
-    
-    encoder_block:
-        _partial_: True
-        _target_: dp_gfn.nets.encoders.LinearTransformerBlock
-        input_dim: 256                  # node_emb | node_emb | label_em
-        num_heads: 4
-        d_k: 64
-        d_v: 64
-        d_model: 256                    # node_emb | node_emb  
-        activation: ${model.common.activation}
-        attn_dropout: ${model.common.dropout_rate}
-        mlp_dropout: ${model.common.dropout_rate}
-        dropout_rate: ${model.common.dropout_rate}
-        eps: 1e-6
-        label_embedded: True
-        # num_tags: ${num_tags}
-        label_embedding_dim: ${model.common.label_embedding_dim}
-    num_layers: 3
-    input_dim: ${model.backbone.encoder_block.input_dim}
-    output_dim: ${model.backbone.encoder_block.d_model}
+    n_layers: 4
+    embed_dim: 256
+    n_heads: 4
+    num_relations: 3
+    dropout: 0.
+    # name: GATConv
+    # d_model: 256
+    # attr: 
+    #     out_feats: 64
+    #     num_heads: 4
+
+    # name: EdgeGATConv
+    # attr:
+    #     out_feats: 64
+    #     edge_feats: 256
+    #     num_heads: 4
+
 
 label_scorer:
-    _partial_: True
     _target_: dp_gfn.nets.initial_encoders.LabelScorer
-    # num_tags: ${num_tags}
-    input_dim: ${model.common.node_embedding_dim}
-    intermediate_dim: 128
     hidden_layers: ${model.common.hidden_layers}
-    dropout_rate: ${model.common.dropout_rate}
+    dropout: ${model.common.dropout}
     activation: ${model.common.activation}
-    use_pretrained_embeddings: False    # if False, use node embeddings in state representations (head & dep)
-                                        # otherwise, pretrained word embeddings are used and mapping to intermediate dim is required
 
 forward_head:
-    _partial_: True
-    _target_: dp_gfn.nets.encoders.MLP
-    input_dim: ${model.backbone.output_dim}
-    # output_dim: num_variables ** 2 
-    # hidden_layers: [64]
-    # hidden_layers: ${model.common.hidden_layers}
-    dropout_rate: ${model.common.dropout_rate}
-    activation: ${model.common.activation}
+    dep: 
+        output_sizes: [128, 1]
+        dropout: ${model.common.dropout}
+        activation: ${model.common.activation}  
+    head:
+        _target_: dp_gfn.nets.encoders.BiAffine  
 
 backward_head:
-    _partial_: True
+    output_sizes: [128, 1]
+    activation: ${model.common.activation}
+    dropout: ${model.common.dropout}
 
 Z_head:
-    _partial_: True
-    _target_: dp_gfn.nets.encoders.MLP
-    # input_dim: word_embedding_dim
-    output_dim: ${model.backbone.output_dim}
-    # hidden_layers: ${model.common.hidden_layers}
-    dropout_rate: ${model.common.dropout_rate}
+    output_sizes: [1, 64, 1]
     activation: ${model.common.activation}
+    dropout: ${model.common.dropout}
 
 num_variables: ${max_number_of_words}

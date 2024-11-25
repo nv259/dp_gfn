@@ -1,20 +1,20 @@
 train:
+    exp_temp: 1.0
+    rand_coef: 0.0
     n_grad_accumulation_steps: 4    # not yet implemented
     max_steps: 100000
     eval_on_train: False
     exploration_rate: 0.05
-    stimulated_annealing: False     # not yet implemented
     clip_grad: 10   # not yet implemented
 
     optimizer:
         name: Adam
-        gflownet_lr: 1e-3
+        gfn_lr: 1e-3
         Z_lr: 3e-3
 
         bert_factor: 0.0  # pretrained lr 
 
     lr_scheduler: 
-        _target_: null  # warmup or so 
         start_lr: 1e-3
         end_lr: 0
         decay_step: null
@@ -31,7 +31,5 @@ train:
 
     backward_policy: null   # fix uniform by default
     score_fn: null          # graph edit distance by default
-eval:
-    batch_size: 16
 
 reward_scale_factor: 10
