@@ -38,7 +38,7 @@ def main(config):
     train_loader, (id2rel, num_tags, max_num_nodes) = get_dataloader(
         path_to_conllu_file=config.train_path,
         max_number_of_words=config.max_number_of_words,
-        batch_size=config.batch_size,
+        batch_size=1,
         num_workers=config.num_workers,
         shuffle=True,
         pre_tokenize=config.pre_tokenize
