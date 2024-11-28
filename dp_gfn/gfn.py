@@ -72,7 +72,7 @@ class DPGFN:
             traj_log_pF += log_pF[1] + log_pF[0]
 
             np_actions = actions.cpu().numpy()
-            print(np_actions)
+            # print(np_actions)
             states.step(np_actions)
             prev_actions = actions.clone()
 
@@ -123,7 +123,8 @@ class DPGFN:
                     word_ids=batch["word_ids"].to(self.device),
                 )
 
-                log_Z = self.model.logZ(batch["num_words"].to(torch.float32).to(self.device))
+                # log_Z = self.model.logZ(batch["num_words"].to(torch.float32).to(self.device))
+                log_Z = torch.tensor([0.], device=self.device)
                 complete_states, traj_log_pF, traj_log_pB = self.sample(word_embeddings, state)
                 log_R = torch.log(
                     scores.reward(
@@ -135,19 +136,31 @@ class DPGFN:
                 )
 
                 loss, logs = trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
-                loss = loss.mean()
+                # loss = loss.mean()
 
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
 
-                train_losses.append(sum(logs['loss'])/self.batch_size)
+                rewards.append(logs['log_R'])
+                train_losses.append(logs['loss'])
+                log_Zs.append(logs['log_Z'])
                 pbar.set_postfix(
                     loss=f"{train_losses[-1]:.5f}",
                     reward=f"{np.exp(logs['log_R']).mean():.6f}",
                     Z=f"{np.exp(logs['log_Z']):.5f}",
                 )
-
+                
+                if iteration % self.eval_every_n == 0:
+                    np.save(os.path.join(save_folder, f'rewards_{iteration}.npy'), np.array(rewards))
+                    np.save(os.path.join(save_folder, f'logZ_{iteration}.npy'), np.array(log_Zs))
+                    np.save(os.path.join(save_folder, f'train_losses_{iteration}.npy'), np.array(train_losses))
+                    rewards = []
+                    log_Zs = [] 
+        
+        np.save(os.path.join(save_folder, "train_losses.npy"), np.array(train_losses))
+        np.save(os.path.join(save_folder, "logR.npy"), np.array(rewards))
+        np.save(os.path.join(save_folder, "logZ.npy"), np.array(log_Zs)) 
         return train_losses, val_losses
 
     def val_step(self, val_loader, *args, **kwargs):
@@ -165,7 +178,9 @@ class DPGFN:
 
 
 def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1.0):
-    loss = (log_Z + traj_log_pF - log_R - traj_log_pB) ** 2
+    # loss = (log_Z + traj_log_pF - log_R - traj_log_pB) ** 2
+    error = (log_Z + traj_log_pF - log_R - traj_log_pB)
+    loss = torch.nn.HuberLoss(delta=delta)(error, torch.zeros_like(error))
     logs = {"loss": loss.tolist(), "log_R": log_R.tolist(), "log_Z": log_Z.item()}
 
     return loss, logs
