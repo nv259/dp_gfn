@@ -123,8 +123,8 @@ class DPGFN:
                     word_ids=batch["word_ids"].to(self.device),
                 )
 
-                # log_Z = self.model.logZ(batch["num_words"].to(torch.float32).to(self.device))
-                log_Z = torch.tensor([0.], device=self.device)
+                log_Z = self.model.logZ(batch["num_words"].to(torch.float32).to(self.device))
+                # log_Z = torch.tensor([4.6], device=self.device)
                 complete_states, traj_log_pF, traj_log_pB = self.sample(word_embeddings, state)
                 log_R = torch.log(
                     scores.reward(
@@ -155,8 +155,8 @@ class DPGFN:
                     np.save(os.path.join(save_folder, f'rewards_{iteration}.npy'), np.array(rewards))
                     np.save(os.path.join(save_folder, f'logZ_{iteration}.npy'), np.array(log_Zs))
                     np.save(os.path.join(save_folder, f'train_losses_{iteration}.npy'), np.array(train_losses))
-                    rewards = []
-                    log_Zs = [] 
+                    # rewards = []
+                    # log_Zs = [] 
         
         np.save(os.path.join(save_folder, "train_losses.npy"), np.array(train_losses))
         np.save(os.path.join(save_folder, "logR.npy"), np.array(rewards))

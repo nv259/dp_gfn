@@ -1,7 +1,7 @@
 import torch.nn.functional as F
 import numpy as np
 
-MASKED_VALUE = -1e5
+MASKED_VALUE = -1e9
 
 
 def encode(decoded):
@@ -123,8 +123,8 @@ class StateBatch:
         
         # Exclude incoming edges to ROOT
         self._closure_T[:, :, 0] = True
-        self._closure_T[:, self.num_words + 1 :, :] = True
-        self._closure_T[:, :, self.num_words + 1 :] = True
+        # self._closure_T[:, self.num_words + 1 :, :] = True
+        # self._closure_T[:, :, self.num_words + 1 :] = True
         
         # # Who let a sentence with only one word here :D?
         # for i in range(self.batch_size):

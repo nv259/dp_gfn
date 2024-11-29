@@ -36,8 +36,8 @@ class BiAffine(nn.Module):
         self.output_dim = output_dim
 
         # Mapping to intermediate dimension
-        self.lab_head = MLP([input_dim, hidden_dim, input_dim], nn.ReLU(), dropout=dropout)
-        self.lab_dep = MLP([input_dim, hidden_dim, input_dim], nn.ReLU(), dropout=dropout)
+        self.lab_head = MLP([input_dim, input_dim], dropout=dropout)
+        self.lab_dep = MLP([input_dim, input_dim], dropout=dropout)
 
         self.U = nn.Parameter(torch.FloatTensor(output_dim, input_dim, input_dim))
         nn.init.xavier_uniform(self.U)
