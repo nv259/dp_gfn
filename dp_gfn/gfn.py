@@ -1,6 +1,7 @@
 import logging
 import os
 
+import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -8,6 +9,7 @@ from tqdm import trange
 
 from dp_gfn.nets.gflownet import DPGFlowNet
 from dp_gfn.utils import masking, scores
+from dp_gfn.utils.replay_buffer import ReplayBuffer
 
 try:
     from evaluation import save_predictions
@@ -41,6 +43,10 @@ class DPGFN:
         self.max_steps = config.train.max_steps
         self.eval_every_n = config.train.eval_every_n
         self.save_every_n = config.train.save_every_n
+        self.buffer_capacity = config.train.buffer_capacity
+        self.exp_temp = config.train.exp_temp
+        self.rand_coef = config.train.rand_coef
+        self.p_init = config.train.p_init
         self.reward_scale_factor = config.reward_scale_factor
         
     def initialize_policy(self, config):
@@ -70,6 +76,7 @@ class DPGFN:
 
         for step in range(states.num_words):
             traj_log_pF += log_pF[1] + log_pF[0]
+            # traj_log_pF += log_pF
 
             np_actions = actions.cpu().numpy()
             # print(np_actions)
@@ -101,7 +108,8 @@ class DPGFN:
         if self.debug:
             os.makedirs(os.path.join(save_folder, "debug"))
         logging.info(f"Save folder: {save_folder}")
-
+        
+        # replay = ReplayBuffer(self.buffer_capacity, self.max_number_of_words + 1, self.p_init)
         train_loader = cycle(train_loader)
         train_losses, val_losses = [], []
         log_Zs = []
@@ -125,7 +133,7 @@ class DPGFN:
 
                 log_Z = self.model.logZ(batch["num_words"].to(torch.float32).to(self.device))
                 # log_Z = torch.tensor([4.6], device=self.device)
-                complete_states, traj_log_pF, traj_log_pB = self.sample(word_embeddings, state)
+                complete_states, traj_log_pF, traj_log_pB = self.sample(word_embeddings, state, self.exp_temp, self.rand_coef)
                 log_R = torch.log(
                     scores.reward(
                         torch.tensor(complete_states, dtype=torch.float32, device=self.device), 
@@ -155,8 +163,12 @@ class DPGFN:
                     np.save(os.path.join(save_folder, f'rewards_{iteration}.npy'), np.array(rewards))
                     np.save(os.path.join(save_folder, f'logZ_{iteration}.npy'), np.array(log_Zs))
                     np.save(os.path.join(save_folder, f'train_losses_{iteration}.npy'), np.array(train_losses))
-                    # rewards = []
-                    # log_Zs = [] 
+                    plt.plot(np.array(train_losses))
+                    plt.savefig(os.path.join(save_folder, f'train_losses_{iteration}.png'))
+                    plt.close()
+                    rewards = []
+                    log_Zs = [] 
+                    train_losses = []
         
         np.save(os.path.join(save_folder, "train_losses.npy"), np.array(train_losses))
         np.save(os.path.join(save_folder, "logR.npy"), np.array(rewards))
