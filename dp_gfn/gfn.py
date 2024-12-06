@@ -76,7 +76,6 @@ class DPGFN:
 
         for step in range(states.num_words):
             traj_log_pF += log_pF[1] + log_pF[0]
-            # traj_log_pF += log_pF
 
             np_actions = actions.cpu().numpy()
             # print(np_actions)
@@ -144,7 +143,6 @@ class DPGFN:
                 )
 
                 loss, logs = trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
-                # loss = loss.mean()
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -190,7 +188,6 @@ class DPGFN:
 
 
 def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1.0):
-    # loss = (log_Z + traj_log_pF - log_R - traj_log_pB) ** 2
     error = (log_Z + traj_log_pF - log_R - traj_log_pB)
     loss = torch.nn.HuberLoss(delta=delta)(error, torch.zeros_like(error))
     logs = {"loss": loss.tolist(), "log_R": log_R.tolist(), "log_Z": log_Z.item()}
