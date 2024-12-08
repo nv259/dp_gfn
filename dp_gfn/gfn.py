@@ -172,71 +172,93 @@ class DPGFN:
             for iteration in pbar:
                 batch = next(train_loader)
 
-                word_embeddings = self.model.init_state(
-                    input_ids=batch["input_ids"].to(self.device),
-                    attention_mask=batch["attention_mask"].to(self.device),
-                    word_ids=batch["word_ids"].to(self.device),
-                )
-                log_Z = self.model.logZ(
-                    batch["num_words"].to(torch.float32).to(self.device)
-                )
-                # log_Z = torch.tensor([4.6], device=self.device)
-                
-                state = masking.StateBatch(
-                    self.batch_size,
-                    batch["num_words"][0].item()
-                    + 1,  # TODO: Generalize to num_variables
-                    batch["num_words"][0].item(),
-                )
-                
-                # Collect trajectories using pF
-                complete_states, traj_log_pF, traj_log_pB = self.sample(
-                    word_embeddings, state, self.exp_temp, self.rand_coef
-                )
-
-                # Synthesize trajectories using pB
-                state.reset(self.syn_batch_size)
-                syn_traj_log_pF, syn_traj_log_pB = self.synthesize_trajectory(
-                    word_embeddings, state, batch["graph"], self.exp_temp, self.rand_coef
-                )
-                
-                # Gather both forward trajectories and backward trajectories
-                complete_states = torch.cat([complete_states, batch["graph"].repeat(self.syn_batch_size, 1, 1)], dim=0)
-                traj_log_pB = torch.cat([traj_log_pB, syn_traj_log_pB], dim=0)
-                traj_log_pF = torch.cat([traj_log_pF, syn_traj_log_pF], dim=0)
-
-                # Calculate reward                
-                log_R = torch.log(
-                    scores.reward(
-                        torch.tensor(
-                            complete_states, dtype=torch.float32, device=self.device
-                        ),
-                        batch["graph"].to(torch.bool).to(torch.float32).to(self.device),
-                        scores.frobenius_norm_distance,
+                try:
+                    word_embeddings = self.model.init_state(
+                        input_ids=batch["input_ids"].to(self.device),
+                        attention_mask=batch["attention_mask"].to(self.device),
+                        word_ids=batch["word_ids"].to(self.device),
                     )
-                    + 1e-9  # offset to prevent -inf from occurring
-                )
-
-                loss, logs = trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
-
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
-
-                rewards.append(logs["log_R"])
-                train_losses.append(logs["loss"])
-                log_Zs.append(logs["log_Z"])
-                pbar.set_postfix(
-                    loss=f"{train_losses[-1]:.5f}",
-                    reward=f"{np.exp(logs['log_R']).mean():.6f}",
-                    Z=f"{np.exp(logs['log_Z']):.5f}",
-                )
-
-                if iteration % self.eval_every_n == 0:
-                    rewards, log_Zs, train_losses = io.save_train_aux(
-                        save_folder, iteration, rewards, log_Zs, train_losses
+                    log_Z = self.model.logZ(
+                        batch["num_words"].to(torch.float32).to(self.device)
                     )
+                    # log_Z = torch.tensor([4.6], device=self.device)
+                    
+                    state = masking.StateBatch(
+                        self.batch_size,
+                        batch["num_words"][0].item()
+                        + 1,  # TODO: Generalize to num_variables
+                        batch["num_words"][0].item(),
+                    )
+                    
+                    # Collect trajectories using pF
+                    complete_states, traj_log_pF, traj_log_pB = self.sample(
+                        word_embeddings, state, self.exp_temp, self.rand_coef
+                    )
+
+                    # Synthesize trajectories using pB
+                    state.reset(self.syn_batch_size)
+                    syn_traj_log_pF, syn_traj_log_pB = self.synthesize_trajectory(
+                        word_embeddings, state, batch["graph"], self.exp_temp, self.rand_coef
+                    )
+                    
+                    # Gather both forward trajectories and backward trajectories
+                    complete_states = torch.cat([complete_states, batch["graph"].repeat(self.syn_batch_size, 1, 1)], dim=0)
+                    traj_log_pB = torch.cat([traj_log_pB, syn_traj_log_pB], dim=0)
+                    traj_log_pF = torch.cat([traj_log_pF, syn_traj_log_pF], dim=0)
+
+                    # Calculate reward                
+                    log_R = torch.log(
+                        scores.reward(
+                            torch.tensor(
+                                complete_states, dtype=torch.float32, device=self.device
+                            ),
+                            batch["graph"].to(torch.bool).to(torch.float32).to(self.device),
+                            scores.frobenius_norm_distance,
+                        )
+                        + 1e-9  # offset to prevent -inf from occurring
+                    )
+
+                    loss, logs = trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
+
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    self.optimizer.step()
+
+                    rewards.append(logs["log_R"])
+                    train_losses.append(logs["loss"])
+                    log_Zs.append(logs["log_Z"])
+                    pbar.set_postfix(
+                        loss=f"{train_losses[-1]:.5f}",
+                        reward=f"{np.exp(logs['log_R']).mean():.6f}",
+                        Z=f"{np.exp(logs['log_Z']):.5f}",
+                    )
+
+                    if iteration % self.eval_every_n == 0:
+                        rewards, log_Zs, train_losses = io.save_train_aux(
+                            save_folder, iteration, rewards, log_Zs, train_losses
+                        )
                 
+                
+                except Exception as e:
+                    logging.error(f"Error encountered at iteration {iteration}: {e}") 
+                    traceback.print_exc()   # Print detailed error traceback
+                   
+                    error_save_path = os.path.join(save_folder, f"error_iteration_{iteration}")
+                    os.makedirs(error_save_path, exist_ok=True)
+
+                    # Save model parameters, optimizer state
+                    torch.save(self.model.state_dict(), os.path.join(error_save_path, "model_state_dict.pt"))
+                    torch.save(self.optimizer.state_dict(), os.path.join(error_save_path, "optimizer_state_dict.pt"))
+                    # Save current batch (optional, but might be helpful for debugging)
+                    torch.save(batch, os.path.join(error_save_path, "batch.pt"))
+
+                    # Save dataloader state (if possible)
+                    try:
+                        torch.save(train_loader.state_dict(), os.path.join(error_save_path, "dataloader_state.pt"))
+                    except Exception as e_dataloader:  # Not all dataloaders are easily saveable
+                         logging.warning(f"Could not save dataloader state: {e_dataloader}")
+                         
+                    break
                 
         np.save(os.path.join(save_folder, "train_losses.npy"), np.array(train_losses))
         np.save(os.path.join(save_folder, "logR.npy"), np.array(rewards))
