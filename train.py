@@ -35,14 +35,16 @@ def main(config):
     config = DictConfig(config)
 
     logging.info("Loading Data")
-    train_loader, num_tags, max_num_nodes, id2rel = get_dataloader(
+    train_loader, (id2rel, num_tags, max_num_nodes) = get_dataloader(
         path_to_conllu_file=config.train_path,
         max_number_of_words=config.max_number_of_words,
-        batch_size=config.batch_size,
+        batch_size=1,
         num_workers=config.num_workers,
         shuffle=True,
-        is_train=True,
+        pre_tokenize=config.pre_tokenize
     )
+    torch.save(train_loader, os.path.join(os.path.dirname(config.train_path), "train_loader.pt"))
+    
     config.model.num_variables = max_num_nodes
     config.max_number_of_words = max_num_nodes - 1
     print(OmegaConf.to_yaml(config))
@@ -56,7 +58,9 @@ def main(config):
             batch_size=config.algorithm.eval.batch_size,
             num_workers=config.num_workers,
             shuffle=False,
+            pre_tokenize=config.pre_tokenize
         )
+        torch.save(val_loader, os.path.join(os.path.dirname(config.train_path), "val_loader.pt"))
     except:
         val_loader = None
         logging.warning("No validation data found")

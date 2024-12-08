@@ -2,7 +2,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 
 
-def visualize_graphs(adjacency_matrices, save_path_prefix="outut/graph"):
+def visualize_graphs(adjacency_matrices, save_path_prefix="output/graph"):
     """
     Visualizes a batch of graphs from adjacency matrices and saves them as JPG images.
 

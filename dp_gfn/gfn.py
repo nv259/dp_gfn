@@ -1,39 +1,20 @@
-import pickle
 import logging
 import os
-from collections import namedtuple
+import traceback
 
 import numpy as np
-import matplotlib.pyplot as plt
+import torch
+from torch.utils.data import DataLoader
 from tqdm import trange
+
+from dp_gfn.nets.gflownet import DPGFlowNet
+from dp_gfn.utils import masking, scores, io
+# from dp_gfn.utils.replay_buffer import ReplayBuffer
 
 try:
     from evaluation import save_predictions
 except:
     pass
-
-import subprocess
-
-import haiku as hk
-import jax
-import jax.numpy as jnp
-import optax
-from jax import grad, jit, vmap
-from torch.utils.data import DataLoader
-from transformers import AutoConfig, AutoTokenizer
-
-from dp_gfn.nets import bert
-from dp_gfn.nets.gflownet import gflownet_fn, output_total_flow_fn
-from dp_gfn.nets.initial_encoders import label_score_fn
-from dp_gfn.utils import io, masking, scores
-from dp_gfn.utils.pretrains import (
-    batch_token_embeddings_to_batch_word_embeddings,
-    create_position_ids_from_input_ids,
-)
-
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-GFlowNetState = namedtuple("GFlowNetState", ["optimizer", "step"])
-GFlowNetParams = namedtuple("GFlowNetParams", ["bert", "gfn", "logZ"])
 
 
 class DPGFN:
@@ -44,222 +25,134 @@ class DPGFN:
         self.id2rel = id2rel
         self.debug = debug
 
-        self.initialize_vars()
-
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.config.model.pref_encoder.pretrained_path
-        )
-
-        dummy_input_ids = jnp.ones(
-            (self.batch_size, self.tokenizer.model_max_length), dtype=jnp.int32
-        )
-
-        bert.init(self.config.model.pref_encoder.pretrained_path)
-        self.bert_model = hk.transform(bert.get_bert_token_embeddings_fn)
-        self.bert_params = self.bert_model.init(
-            self.key,
-            dummy_input_ids,
-            jnp.ones_like(dummy_input_ids),
-            jnp.zeros_like(dummy_input_ids),
-            jnp.ones_like(dummy_input_ids),
-            True,
-        )
-
-        self.gflownet = hk.without_apply_rng(hk.transform(gflownet_fn))
-        base_masks = masking.base_mask(self.num_variables, self.num_variables)
-        self.gfn_params = self.gflownet.init(
-            self.key,
-            self.key,
-            jax.random.normal(
-                self.key, (self.num_variables, self.bert_config["hidden_size"])
-            ),
-            jnp.zeros((self.num_variables,), dtype=jnp.int32),
-            base_masks,
-            self.num_tags,
-            self.num_layers,
-            self.num_heads,
-            self.key_size,
-            jnp.array(0.0),
-        )
-        self.gflownet = vmap(
-            self.gflownet.apply, in_axes=(None, 0, 0, 0, 0, None, None, None, None, 0)
-        )
-
-        self.logZ = hk.without_apply_rng(hk.transform(output_total_flow_fn))
-        self.logZ_params = self.logZ.init(
-            self.key, jnp.ones((self.bert_config["hidden_size"],))
-        )
-        self.logZ = vmap(self.logZ.apply, in_axes=(None, 0))
-
-        # TODO: Tags predictor
-        # self.label_scorer = hk.without_apply_rng(hk.transform(label_scorer_fn))
-        # self.label_scorer_params = self.label_scorer.init(
-        #     self.key,
-        #     jnp.ones((self.node_embedding_dim, )),
-        #     jnp.ones((self.node_embedding_dim, )),
-        #     self.num_tags
-        # )
-        # self.label_scorer = vmap(self.label_scorer.apply, in_axes=(None, 0, 0, None))
-
-        self.init_policy()
+        self.initialize_vars(config)
+        self.model = DPGFlowNet(config.model)
+        self.model = self.model.to(self.device)
+        self.initialize_policy(config.algorithm)
 
         if pretrained_path is not None:
             self.load_weights(pretrained_path)
 
-    def initialize_vars(self):
-        self.key = jax.random.PRNGKey(self.config.seed)
-        self.bert_config = AutoConfig.from_pretrained(
-            self.config.model.pref_encoder.pretrained_path
-        ).to_dict()
+    def initialize_vars(self, config):
+        self.batch_size = config.batch_size
+        self.dump_foldername = config.dump_foldername
+        self.max_number_of_words = config.max_number_of_words
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        self.num_variables = self.config.model.num_variables
-        self.batch_size = self.config.batch_size
-        self.dump_foldername = self.config.dump_foldername
-
-        self.num_layers = self.config.model.backbone.num_layers
-        self.num_heads = self.config.model.backbone.encoder_block.num_heads
-        self.key_size = self.config.model.backbone.encoder_block.d_k
-        self.node_embedding_dim = self.config.model.common.node_embedding_dim
-        self.model_size = self.num_heads * self.key_size
-        self.init_scale = 2.0 / self.config.model.backbone.num_layers
-        self.agg_func = self.config.model.pref_encoder.agg_func
-
-        config = self.config.algorithm
+        config = config.algorithm
+        self.max_steps = config.train.max_steps
+        self.eval_every_n = config.train.eval_every_n
+        self.save_every_n = config.train.save_every_n
+        self.syn_batch_size = config.train.syn_batch_size
+        # self.buffer_capacity = config.train.buffer_capacity
+        self.exp_temp = config.train.exp_temp
+        self.rand_coef = config.train.rand_coef
+        self.p_init = config.train.p_init
         self.reward_scale_factor = config.reward_scale_factor
 
+    def initialize_policy(self, config):
         config = config.train
-        self.n_grad_accumulation_steps = config.n_grad_accumulation_steps
-        self.max_steps = config.max_steps
-        self.eval_on_train = config.eval_on_train
-        self.exploration_scheduler = config.exploration_scheduler
-        self.clip_grad = config.clip_grad
-        self.eval_every_n = config.eval_every_n
-        self.save_every_n = config.save_every_n
 
-    def init_policy(self):
-        gflownet_lr = self.config.algorithm.train.optimizer.gflownet_lr
-        Z_lr = self.config.algorithm.train.optimizer.Z_lr
-        bert_factor = self.config.algorithm.train.optimizer.bert_factor
+        bert_params = [params for name, params in self.model.named_parameters() 
+                       if "bert" in name]
+        logZ_params = [params for name, params in self.model.named_parameters() 
+                       if "logZ" in name]
+        gfn_params = [params for name, params in self.model.named_parameters() 
+                      if ("bert" not in name) and ("logZ" not in name)]
 
-        self.optimizer = optax.multi_transform(
-            {
-                "bert": optax.adam(gflownet_lr * bert_factor),
-                "gfn": optax.adam(gflownet_lr),
-                "logZ": optax.adam(Z_lr),
-            },
-            ("bert", "gfn", "logZ"),
-        )
-        self.states = self.optimizer.init(
-            (self.bert_params, self.gfn_params, self.logZ_params)
+        self.optimizer = torch.optim.Adam(
+            [
+                {
+                    "params": bert_params,
+                    "lr": config.optimizer.gfn_lr * config.optimizer.bert_factor,
+                },
+                {"params": logZ_params, "lr": config.optimizer.Z_lr},
+                {"params": gfn_params, "lr": config.optimizer.gfn_lr},
+            ]
         )
 
-    def init_states(self, bert_params, tokens, position_ids, training=False):
-        self.key, bert_key = jax.random.split(self.key)
+    def sample(self, node_embeddings, states, exp_temp=1.0, rand_coef=0.0):
+        traj_log_pF = torch.zeros((self.batch_size,), dtype=torch.float32, device=self.device)
+        traj_log_pB = torch.zeros((self.batch_size,), dtype=torch.float32, device=self.device)
 
-        token_embeddings = jit(self.bert_model.apply, static_argnums=(6,))(
-            bert_params,
-            bert_key,
-            tokens["input_ids"],
-            position_ids,
-            jnp.zeros_like(tokens["input_ids"]),
-            tokens["attention_mask"],
-            training=training,
+        actions, log_pF, backward_logits = self.model(
+            node_embeddings=node_embeddings,
+            graph_relations=torch.tensor(states["relations"], device=self.device),
+            mask=torch.tensor(states["mask"]).to(self.device),
+            exp_temp=exp_temp,
+            rand_coef=rand_coef,
         )
 
-        node_embeddings = batch_token_embeddings_to_batch_word_embeddings(
-            tokens=tokens,
-            token_embeddings=token_embeddings,
-            agg_func=self.agg_func,
-            max_word_length=self.num_variables,
-        )  # TODO: Find another way that allows parallelization -> JIT 
+        for step in range(states.num_words):
+            traj_log_pF += log_pF[1] + log_pF[0]
 
-        # Embeddings for computing intitial flow
-        sentence_embeddings = token_embeddings.mean(1)
+            np_actions = actions.cpu().numpy()
+            # print(np_actions)
+            states.step(np_actions)
+            prev_actions = actions.clone()
 
-        return node_embeddings, sentence_embeddings
-
-    def loss(
-        self,
-        bert_params,
-        gfn_params,
-        Z_params,
-        tokens,
-        position_ids,
-        num_words_list,
-        golds,
-        delta,
-    ):
-        node_embeddings, sentence_embeddings = self.init_states(
-            bert_params, tokens, position_ids, training=False
-        )
-        log_Z = jit(self.logZ)(Z_params, sentence_embeddings).squeeze(axis=-1)
-
-        traj_log_pF, traj_log_pB, complete_states = self.sample(
-            gfn_params, node_embeddings, num_words_list, delta
-        )
-
-        golds = (golds != 0).astype(bool)
-        log_R = jnp.log(scores.reward(complete_states["adjacency"], golds, scores.frobenius_norm_distance) + 1e-9).clip(-100)
-        # log_R = jnp.log(
-        #     scores.reward(
-        #         complete_states["adjacency"], golds, scores.frobenius_norm_distance
-        #     ) ** self.reward_scale_factor
-        # ).clip(-100)
-
-        return trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
-
-    def sample(self, gfn_params, node_embeddings, num_words_list, delta=0.001):
-        key = jax.random.split(self.key, len(num_words_list))
-        delta = jnp.array([delta] * len(num_words_list))
-        states = masking.StateBatch(self.num_variables, num_words_list)
-
-        traj_log_pF = jnp.zeros((len(num_words_list),), dtype=jnp.float32)
-        traj_log_pB = jnp.zeros((len(num_words_list),), dtype=jnp.float32)
-
-        for step in range(self.num_variables):
-            dones = states.check_done()
-
-            key, actions, (log_pF_dep, log_pF_head), log_pBs = jit(
-                self.gflownet, static_argnums=(5, 6, 7, 8)
-            )(
-                gfn_params,
-                key,
-                node_embeddings,
-                states["labels"],
-                states["mask"],
-                self.num_tags,
-                self.num_layers,
-                self.num_heads,
-                self.key_size,
-                delta,
+            actions, log_pF, backward_logits = self.model(
+                node_embeddings=node_embeddings,
+                graph_relations=torch.tensor(states["relations"], device=self.device),
+                mask=torch.tensor(states["mask"]).to(self.device),
+                exp_temp=exp_temp,
+                rand_coef=rand_coef,
             )
 
-            log_pF_dep = jnp.where(dones, jnp.zeros_like(log_pF_dep), log_pF_dep)
-            log_pF_head = jnp.where(dones, jnp.zeros_like(log_pF_head), log_pF_head)
-            traj_log_pF += log_pF_dep + log_pF_head
+            traj_log_pB += (
+                backward_logits.log_softmax(1)
+                .gather(1, prev_actions[:, 1].unsqueeze(-1))
+                .squeeze(-1)
+            )
 
-            if step > 0:
-                log_pB = jnp.take_along_axis(
-                    log_pBs, (prev_actions - 1)[..., jnp.newaxis], axis=1
-                ).squeeze(-1)
-                log_pB = jnp.where(prev_dones, jnp.zeros_like(log_pB), log_pB)
+        return states["adjacency"], traj_log_pF, traj_log_pB
 
-                traj_log_pB += log_pB
+    def synthesize_trajectory(self, node_embeddings, states, graph_relations, exp_temp=1.0, rand_coef=0.0):
+        traj_log_pF = torch.zeros((self.syn_batch_size,), dtype=torch.float32, device=self.device)
+        traj_log_pB = torch.zeros((self.syn_batch_size,), dtype=torch.float32, device=self.device)
+       
+        action_list = self.model.trace_backward(
+            node_embeddings=node_embeddings,
+            graph_relations=graph_relations,
+            exp_temp=exp_temp,
+            rand_coef=rand_coef
+        )
+        
+        log_pF, backward_logits = self.model(
+            node_embeddings=node_embeddings,
+            graph_relations=graph_relations,
+            mask=torch.tensor(states['mask'].to(self.device)),
+            actions=action_list[0],
+            exp_temp=exp_temp,
+            rand_coef=rand_coef
+        ) 
+        
+        for step in range(states.num_words):
+            traj_log_pF += log_pF[1] + log_pF[0]
+
+            np_actions = actions.cpu().numpy()
+            states.step(np_actions)
+
+            actions, log_pF, backward_logits = self.model(
+                node_embeddings=node_embeddings,
+                graph_relations=torch.tensor(states["relations"], device=self.device),
+                mask=torch.tensor(states["mask"]).to(self.device),
+                actions=action_list[step + 1],
+                exp_temp=exp_temp,
+                rand_coef=rand_coef,
+            )
+
+            traj_log_pB += (
+                backward_logits.log_softmax(1)
+                .gather(1, action_list[step][:, 1].unsqueeze(-1))
+                .squeeze(-1)
+            )
             
-            states.step(np.array(actions))
-            prev_dones = dones.copy()
-            prev_actions = actions[0].copy()
-
-            if prev_dones.all():
-                break
-            
-        self.key = key[0]
-
-        return traj_log_pF, traj_log_pB, states
+        return traj_log_pF, traj_log_pB
 
     def train(self, train_loader: DataLoader, val_loader: DataLoader):
         save_folder = os.path.join(
-            "/".join(logging.getLogger().handlers[1].baseFilename.split("/")[:-1]),
+            os.path.dirname(logging.getLogger().handlers[1].baseFilename),
             self.dump_foldername,
         )
         os.makedirs(save_folder, exist_ok=True)
@@ -269,236 +162,227 @@ class DPGFN:
             os.makedirs(os.path.join(save_folder, "debug"))
         logging.info(f"Save folder: {save_folder}")
 
+        # replay = ReplayBuffer(self.buffer_capacity, self.max_number_of_words + 1, self.p_init)
         train_loader = cycle(train_loader)
         train_losses, val_losses = [], []
-        train_loss, val_loss = 0, 0
         log_Zs = []
         rewards = []
 
-        exploration_schedule = jax.jit(
-            optax.linear_schedule(
-                init_value=self.exploration_scheduler['init_value'],
-                end_value=self.exploration_scheduler['end_value'],
-                transition_steps=self.exploration_scheduler['transition_steps'],
-                transition_begin=self.exploration_scheduler['transition_begin'],
-            )
-        )
+        with trange(self.max_steps, desc="Training") as pbar:
+            for iteration in pbar:
+                batch = next(train_loader)
 
-        try:
-            with trange(self.max_steps, desc="Training") as pbar:
-                for iteration in pbar:
-                    delta = exploration_schedule(iteration)
-                    batch = next(train_loader)
-
-                    tokens = self.tokenizer(
-                        batch["text"],
-                        return_tensors="jax",
-                        padding="max_length",
-                        truncation=True,
-                        add_special_tokens=False,
+                try:
+                    word_embeddings = self.model.init_state(
+                        input_ids=batch["input_ids"].to(self.device),
+                        attention_mask=batch["attention_mask"].to(self.device),
+                        word_ids=batch["word_ids"].to(self.device),
                     )
-
-                    position_ids = create_position_ids_from_input_ids(
-                        tokens["input_ids"]
+                    log_Z = self.model.logZ(
+                        batch["num_words"].to(torch.float32).to(self.device)
                     )
-
-                    grads, logs = grad(self.loss, argnums=(0, 1, 2), has_aux=True)(
-                        self.bert_params,
-                        self.gfn_params,
-                        self.logZ_params,
-                        tokens,
-                        position_ids,
-                        batch["num_words"],
-                        batch["graph"],
-                        delta,
-                    )
-
-                    updates, self.states = self.optimizer.update(
-                        grads,
-                        self.states,
-                        (self.bert_params, self.gfn_params, self.logZ_params),
-                    )
-                    self.bert_params, self.gfn_params, self.logZ_params = (
-                        optax.apply_updates(
-                            (self.bert_params, self.gfn_params, self.logZ_params),
-                            updates,
-                        )
-                    )
-                    rewards.append(np.exp(logs["log_R"]))
-                    log_Zs.append(logs["log_Z"])
-                    train_losses.append(logs["loss"])
+                    # log_Z = torch.tensor([4.6], device=self.device)
                     
-                    if iteration % self.eval_every_n == 0:
-                        gold = os.path.join(save_folder, "predicts", f"gold.conllu")
-                        system = os.path.join(
-                            save_folder, "predicts", f"system_{iteration}.conllu"
-                        )
-                        save_predictions(
-                            algorithm=self,
-                            loader=val_loader,
-                            config=self.config,
-                            id2rel=self.id2rel,
-                            original=self.config.train_path.replace("train", "dev"),
-                            gold=gold,
-                            system=system,
-                        )
-                        subprocess.run(["./ud_eval.py", gold, system])
+                    state = masking.StateBatch(
+                        self.batch_size,
+                        batch["num_words"][0].item()
+                        + 1,  # TODO: Generalize to num_variables
+                        batch["num_words"][0].item(),
+                    )
+                    
+                    # Collect trajectories using pF
+                    complete_states, traj_log_pF, traj_log_pB = self.sample(
+                        word_embeddings, state, self.exp_temp, self.rand_coef
+                    )
 
-                        val_loss = self.val_step(val_loader)
-                        val_losses.append(val_loss)
+                    # Synthesize trajectories using pB
+                    state.reset(self.syn_batch_size)
+                    syn_traj_log_pF, syn_traj_log_pB = self.synthesize_trajectory(
+                        word_embeddings, state, batch["graph"], self.exp_temp, self.rand_coef
+                    )
+                    
+                    # Gather both forward trajectories and backward trajectories
+                    complete_states = torch.cat([complete_states, batch["graph"].repeat(self.syn_batch_size, 1, 1)], dim=0)
+                    traj_log_pB = torch.cat([traj_log_pB, syn_traj_log_pB], dim=0)
+                    traj_log_pF = torch.cat([traj_log_pF, syn_traj_log_pF], dim=0)
 
-                        if self.eval_on_train:
-                            train_loss = self.val_step(train_loader)
-                            train_losses.append(train_loss)
-
-                        plt.clf()
-                        plt.cla()
-                        fig, ax = plt.subplots(2, figsize=(16, 10))
-                        ax[0].plot(train_losses)
-                        ax[0].set_title("Train loss")
-                        ax[1].set_title("Estimated Z")
-                        ax[1].plot(np.exp(log_Zs))
-                        plt.savefig(os.path.join(save_folder, f"log_{iteration}.png"))
-                        plt.close()
-                        
-                        if iteration:
-                            fig, ax = plt.subplots(2, figsize=(16, 10))
-                            ax[0].plot(train_losses[-self.eval_every_n:])  
-                            ax[0].set_title("Train loss")
-                            ax[1].set_title("Estimated Z")
-                            ax[1].plot(np.exp(log_Zs[-self.eval_every_n:]))
-                            plt.savefig(os.path.join(save_folder, f"log_{iteration}_sub.png"))
-                            plt.close()
-                            
-
-                        logging.info(
-                            f"Iteration {iteration}: loss = {logs['loss']:.5f} "
-                            f"--- log_Z = {logs['log_Z'].mean():.5f} "
-                            f"--- train_loss = {train_loss:.5f} "
-                            f"--- val_loss = {val_loss:.5f} --- epsilon = {delta:.5f}"
-                        )
-                        # str_rewards = str(rewards).replace('\n', '\t')
-                        # logging.info("Rewards: " + str_rewards)
-                        logging.info(f"Mean reward: {np.concat(rewards).mean():.6f}")
-                        rewards = []
-
-                        if self.debug is True:
-                            np.save(
-                                os.path.join(
-                                    save_folder, "debug", f"logR_{iteration}.npy"
-                                ),
-                                logs["log_R"],
-                            )
-
-                        print("-" * 50)
-
-                    if iteration % self.save_every_n == 0:
-                        io.save(
-                            os.path.join(
-                                save_folder, "model", f"model_{iteration}.npz"
+                    # Calculate reward                
+                    log_R = torch.log(
+                        scores.reward(
+                            torch.tensor(
+                                complete_states, dtype=torch.float32, device=self.device
                             ),
-                            bert=self.bert_params,
-                            gfn=self.gfn_params,
-                            logZ=self.logZ_params,
+                            batch["graph"].to(torch.bool).to(torch.float32).to(self.device),
+                            scores.frobenius_norm_distance,
                         )
+                        + 1e-9  # offset to prevent -inf from occurring
+                    )
 
-                    if self.eval_on_train:
-                        pbar.set_postfix(
-                            epsilon=f"{delta:.4f}",
-                            loss=f"{logs['loss']:.5f}",
-                            reward=f"{np.exp(logs['log_R']).mean():.6f}",
-                            train_loss=f"{train_loss:.5f}",
-                            # val_loss=f"{val_loss:.5f}",
-                            log_Z=f"{logs['log_Z'].mean():.5f}"
+                    loss, logs = trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
+
+                    self.optimizer.zero_grad()
+                    loss.backward()
+                    self.optimizer.step()
+
+                    rewards.append(logs["log_R"])
+                    train_losses.append(logs["loss"])
+                    log_Zs.append(logs["log_Z"])
+                    pbar.set_postfix(
+                        loss=f"{train_losses[-1]:.5f}",
+                        reward=f"{np.exp(logs['log_R']).mean():.6f}",
+                        Z=f"{np.exp(logs['log_Z']):.5f}",
+                    )
+
+                    if iteration % self.eval_every_n == 0:
+                        rewards, log_Zs, train_losses = io.save_train_aux(
+                            save_folder, iteration, rewards, log_Zs, train_losses
                         )
-                    else:
-                        pbar.set_postfix(
-                            epsilon=f"{delta:.4f}",
-                            loss=f"{logs['loss']:.5f}",
-                            reward=f"{np.exp(logs['log_R']).mean():.6f}",
-                            # val_loss=f"{val_loss:.5f}",
-                            log_Z=f"{logs['log_Z'].mean():.5f}"
-                        )
+                
+                
+                except Exception as e:
+                    logging.error(f"Error encountered at iteration {iteration}: {e}") 
+                    traceback.print_exc()   # Print detailed error traceback
+                   
+                    error_save_path = os.path.join(save_folder, f"error_iteration_{iteration}")
+                    os.makedirs(error_save_path, exist_ok=True)
 
+                    # Save model parameters, optimizer state
+                    torch.save(self.model.state_dict(), os.path.join(error_save_path, "model_state_dict.pt"))
+                    torch.save(self.optimizer.state_dict(), os.path.join(error_save_path, "optimizer_state_dict.pt"))
+                    # Save current batch (optional, but might be helpful for debugging)
+                    torch.save(batch, os.path.join(error_save_path, "batch.pt"))
 
-        except Exception as e:  # Save current training information
-            io.save(
-                os.path.join(save_folder, "last.npz"),
-                bert=self.bert_params,
-                gfn=self.gfn_params,
-                logZ=self.logZ_params,
-            )
-
-            np.save(os.path.join(save_folder, "train_losses.npy"), np.array(train_losses))
-            np.save(os.path.join(save_folder, "val_losses.npy"), np.array(val_losses))
-            np.save(os.path.join(save_folder, "log_Zs.npy"), np.array(log_Zs))
-            
-            with open(os.path.join(save_folder, "opt.pkl") , 'wb') as f:
-                pickle.dump({'states': self.states, 'step': iteration}, f)
-
-            raise e
-
+                    # Save dataloader state (if possible)
+                    try:
+                        torch.save(train_loader.state_dict(), os.path.join(error_save_path, "dataloader_state.pt"))
+                    except Exception as e_dataloader:  # Not all dataloaders are easily saveable
+                         logging.warning(f"Could not save dataloader state: {e_dataloader}")
+                         
+                    break
+                
+        np.save(os.path.join(save_folder, "train_losses.npy"), np.array(train_losses))
+        np.save(os.path.join(save_folder, "logR.npy"), np.array(rewards))
+        np.save(os.path.join(save_folder, "logZ.npy"), np.array(log_Zs))
         return train_losses, val_losses
 
-    def val_step(self, val_loader, delta=0.0):
-        losses = []
+    @torch.no_grad()  # This decorator prevents gradient updates
+    def val_step(self, val_loader: DataLoader):
+        """Performs a validation step.
+
+        Args:
+            val_loader (DataLoader): The validation data loader.
+
+        Returns:
+            float: The average loss over the validation set.
+        """
+        self.model.eval()  # Set the model to evaluation mode
+        total_loss = 0
+        total_samples = 0
 
         for batch in val_loader:
-            tokens = self.tokenizer(
-                batch["text"],
-                return_tensors="jax",
-                padding="max_length",
-                truncation=True,
-                add_special_tokens=False,
+            word_embeddings = self.model.init_state(
+                input_ids=batch["input_ids"].to(self.device),
+                attention_mask=batch["attention_mask"].to(self.device),
+                word_ids=batch["word_ids"].to(self.device),
+            )
+            log_Z = self.model.logZ(
+                batch["num_words"].to(torch.float32).to(self.device)
             )
 
-            position_ids = create_position_ids_from_input_ids(tokens["input_ids"])
-
-            (loss, _) = self.loss(
-                self.bert_params,
-                self.gfn_params,
-                self.logZ_params,
-                tokens,
-                position_ids,
-                batch["num_words"],
-                batch["graph"],
-                delta=delta,
+            state = masking.StateBatch(
+                self.batch_size,
+                batch["num_words"][0].item() + 1,
+                batch["num_words"][0].item(),  # Assuming batch size > 1 and consistent number of words
             )
-            losses.append(loss)
+            complete_states, traj_log_pF, traj_log_pB = self.sample(
+                word_embeddings, state, self.exp_temp, self.rand_coef
+            )
 
-        return np.mean(losses)
+            log_R = torch.log(
+                scores.reward(
+                    torch.tensor(
+                        complete_states, dtype=torch.float32, device=self.device
+                    ),
+                    batch["graph"].to(torch.bool).to(torch.float32).to(self.device),
+                    scores.frobenius_norm_distance,
+                )
+                + 1e-9
+            )
+            loss, _ = trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
 
-    def inference(self, tokens, position_ids, num_words_list, delta=0.0):
-        node_embeddings, sentence_embeddings = self.init_states(
-            self.bert_params, tokens, position_ids, training=False
-        )
-        traj_log_pF, traj_log_pB, complete_states = self.sample(
-            self.gfn_params, node_embeddings, num_words_list, delta=delta
-        )
-        log_Z = jit(self.logZ)(self.logZ_params, sentence_embeddings).squeeze(axis=-1)
-        log = (log_Z, traj_log_pF, traj_log_pB)
+            total_loss += loss.item() * len(batch)  # Weighted average for different batch sizes
+            total_samples += len(batch)
 
-        return complete_states, log
+        self.model.train()  # Set the model back to training mode
+        avg_loss = total_loss / total_samples if total_samples > 0 else 0  # Avoid division by zero
+
+        return avg_loss
+
+    def inference(
+        self,
+    ):
+        pass
 
     def load_weights(self, filename):
-        params = io.load(filename)
+        pass
 
-        self.bert_params = params["bert"]
-        self.gfn_params = params["gfn"]
-        self.logZ_params = params["logZ"]
+    def load_training_state(save_path, model, optimizer, train_loader=None):
+        """Loads the training state from a saved checkpoint.
 
-        self.states = params["states"] if "states" in params else self.states
+        Args:
+            save_path (str): The path to the saved checkpoint directory.
+            model (torch.nn.Module): The model.
+            optimizer (torch.optim.Optimizer): The optimizer.
+            train_loader (torch.utils.data.DataLoader, optional): The train dataloader.  Defaults to None.
+                If provided, attempts to load its state as well.
+
+        Returns:
+            int or None: The loaded iteration number, or None if loading failed.
+
+        Raises:
+            ValueError: If `save_path` is an invalid directory or doesn't contain the necessary files.
+        """
+        if not os.path.isdir(save_path):
+            raise ValueError(f"Invalid save path: {save_path}")
+
+        model_path = os.path.join(save_path, "model_state_dict.pt")
+        optimizer_path = os.path.join(save_path, "optimizer_state_dict.pt")
+        
+        if not os.path.exists(model_path) or not os.path.exists(optimizer_path):
+            raise ValueError(f"Missing model or optimizer state dicts in {save_path}")
 
 
-def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1):
-    assert log_Z.shape == traj_log_pF.shape == traj_log_pB.shape == log_R.shape
+        try:
+            model.load_state_dict(torch.load(model_path))
+            optimizer.load_state_dict(torch.load(optimizer_path))
 
+            if train_loader is not None:
+                try:  # Loading dataloader state can be tricky, so handle exceptions
+                    dataloader_path = os.path.join(save_path, "dataloader_state.pt")
+                    if os.path.exists(dataloader_path):
+                        train_loader.load_state_dict(torch.load(dataloader_path))
+                        logging.info("Successfully loaded train dataloader state")
+
+                except Exception as e:
+                    logging.warning(f"Could not load train dataloader state: {e}")
+
+            # Extract iteration number from save path (assumes format "error_iteration_12345")
+            iteration = int(save_path.split("_")[-1])  # fragile parsing; improve if needed
+            logging.info(f"Resuming training from iteration {iteration}")
+
+            return iteration
+
+        except Exception as e:
+            logging.error(f"Error loading training state: {e}")
+            return None
+        
+
+def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1.0):
     error = log_Z + traj_log_pF - log_R - traj_log_pB
-    loss = jnp.power(error, 2).mean()
+    loss = torch.nn.HuberLoss(delta=delta)(error, torch.zeros_like(error))
+    logs = {"loss": loss.tolist(), "log_R": log_R.tolist(), "log_Z": log_Z.item()}
 
-    logs = {"error": error, "loss": loss, "log_R": log_R, "log_Z": log_Z}
-
-    return (loss, logs)
+    return loss, logs
 
 
 def cycle(dataloader):

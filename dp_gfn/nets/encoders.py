@@ -1,75 +1,87 @@
-## the base code is from https://github.com/tristandeleu/jax-dag-gflownet
-
-import haiku as hk
-import jax.nn as nn
-
-from dp_gfn.nets.attention import LinearMultiHeadAttention
+import torch
+from torch import nn
+from dp_gfn.nets.attention import LinearAttention, RelationAwareAttention
 
 
-class DenseBlock(hk.Module):
-    def __init__(self, output_size, init_scale=None, activation="gelu", name=None):
-        super().__init__(name=name)
-        self.output_size = output_size
-        self.init_scale = init_scale
-        self.activation = activation
 
-    def __call__(self, inputs):
-        input_size = inputs.shape[-1]
+class MLP(nn.Module):
+    def __init__(self, output_sizes, activation='GELU', dropout=0.0):
+        super().__init__()
+        
+        if isinstance(activation, str):
+            activation = getattr(nn, activation)()
+        
+        layers = []
+        for idx, output_size in enumerate(output_sizes[:-1]):
+            if idx == 0: continue
+            
+            layers.append(nn.Linear(output_sizes[idx - 1], output_size))
+            layers.append(activation)
+        layers.append(nn.Linear(output_sizes[-2], output_sizes[-1]))
+        layers.append(nn.Dropout(dropout))
 
-        w_init = (
-            hk.initializers.RandomNormal()
-            if self.init_scale is None
-            else hk.initializers.VarianceScaling(self.init_scale)
-        )
+        self.layers = nn.Sequential(*layers)
 
-        hiddens = hk.Linear((input_size + self.output_size) // 2, w_init=w_init)(inputs)
-
-        activation = getattr(nn, self.activation)
-        hiddens = activation(hiddens)
-
-        return hk.Linear(self.output_size, w_init=w_init)(hiddens)
+    def forward(self, x):
+        return self.layers(x)
 
 
-class LinearTransformerBlock(hk.Module):
-    def __init__(
-        self, num_heads, key_size, model_size, init_scale, num_tags, name=None
-    ):
-        super().__init__(name=name)
-        self.num_heads = num_heads
-        self.key_size = key_size
-        self.model_size = model_size
-        self.init_scale = init_scale
-        self.num_tags = num_tags
+class BiAffine(nn.Module):
+    """Biaffine attention layer."""
 
-    def __call__(self, x, labels):
-        w_init = hk.initializers.VarianceScaling(self.init_scale)
+    def __init__(self, input_dim, output_dim, hidden_dim=128, dropout=0.0):
+        super(BiAffine, self).__init__()
 
-        # mapping to model_size at first layer
-        if x.shape[-1] != self.model_size:
-            x = hk.Linear(self.model_size, w_init=w_init)(x)
+        self.input_dim = input_dim
+        self.output_dim = output_dim
 
-        arc_keys = hk.Embed(self.num_tags, self.model_size, w_init=w_init)(labels)
-        arc_values = hk.Embed(self.num_tags, self.model_size, w_init=w_init)(labels)
+        # Mapping to intermediate dimension
+        self.lab_head = MLP([input_dim, input_dim], dropout=dropout)
+        self.lab_dep = MLP([input_dim, input_dim], dropout=dropout)
 
-        # Attention layer
-        attn = LinearMultiHeadAttention(
-            num_heads=self.num_heads,
-            key_size=self.key_size,
-            w_init_scale=self.init_scale,
-        )(x, x, x, arc_keys, arc_values)
+        self.U = nn.Parameter(torch.FloatTensor(output_dim, input_dim, input_dim))
+        nn.init.xavier_uniform(self.U)
 
-        # Add & Norm
-        hiddens = x + attn
-        hiddens = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(hiddens)
+    def forward(self, Rh, Rd):
+        Rh = self.lab_head(Rh)
+        Rd = self.lab_dep(Rd)
 
-        # FFN layer
-        mlp_output = DenseBlock(
-            output_size=self.model_size,
-            init_scale=self.init_scale,
-        )(hiddens)
+        Rh = Rh.unsqueeze(1)
+        Rd = Rd.unsqueeze(1)
 
-        # Add & Norm
-        output = mlp_output + hiddens
-        output = hk.LayerNorm(axis=-1, create_scale=True, create_offset=True)(output)
+        # TODO: Elaborate the score by taking into account head (dep) score and bias
+        S = Rh @ self.U @ Rd.transpose(-1, -2)
 
-        return output
+        return S.squeeze(1)
+
+
+class TransformerEncoderLayer(nn.Module):
+    def __init__(self, embed_dim, n_heads, num_relations=3, dropout=0.0):
+        super().__init__()
+        
+        self.attention = RelationAwareAttention(embed_dim, n_heads, num_relations, dropout)
+        self.attn_layer_norm = nn.LayerNorm(embed_dim)
+        self.ffn = MLP([embed_dim, embed_dim * 2, embed_dim])
+        self.ffn_layer_norm = nn.LayerNorm(embed_dim)
+        
+    def forward(self, x, graph_relations):
+        x = x + self.attention(x, x, x, graph_relations)
+        x = self.attn_layer_norm(x)
+        x = x + self.ffn(x)
+        x = self.ffn_layer_norm(x)
+        
+        return x
+    
+    
+class TransformerEncoder(nn.Module):
+    def __init__(self, n_layers, embed_dim, n_heads, num_relations=3, dropout=0.0):
+        super().__init__()
+        
+        self.layers = nn.ModuleList([TransformerEncoderLayer(embed_dim, n_heads, num_relations, dropout)
+                       for _ in range(n_layers)])
+        
+    def forward(self, x, graph_relations):
+        for layer in self.layers:
+            x = layer(x, graph_relations)
+            
+        return x
