@@ -326,6 +326,56 @@ class DPGFN:
     def load_weights(self, filename):
         pass
 
+    def load_training_state(save_path, model, optimizer, train_loader=None):
+        """Loads the training state from a saved checkpoint.
+
+        Args:
+            save_path (str): The path to the saved checkpoint directory.
+            model (torch.nn.Module): The model.
+            optimizer (torch.optim.Optimizer): The optimizer.
+            train_loader (torch.utils.data.DataLoader, optional): The train dataloader.  Defaults to None.
+                If provided, attempts to load its state as well.
+
+        Returns:
+            int or None: The loaded iteration number, or None if loading failed.
+
+        Raises:
+            ValueError: If `save_path` is an invalid directory or doesn't contain the necessary files.
+        """
+        if not os.path.isdir(save_path):
+            raise ValueError(f"Invalid save path: {save_path}")
+
+        model_path = os.path.join(save_path, "model_state_dict.pt")
+        optimizer_path = os.path.join(save_path, "optimizer_state_dict.pt")
+        
+        if not os.path.exists(model_path) or not os.path.exists(optimizer_path):
+            raise ValueError(f"Missing model or optimizer state dicts in {save_path}")
+
+
+        try:
+            model.load_state_dict(torch.load(model_path))
+            optimizer.load_state_dict(torch.load(optimizer_path))
+
+            if train_loader is not None:
+                try:  # Loading dataloader state can be tricky, so handle exceptions
+                    dataloader_path = os.path.join(save_path, "dataloader_state.pt")
+                    if os.path.exists(dataloader_path):
+                        train_loader.load_state_dict(torch.load(dataloader_path))
+                        logging.info("Successfully loaded train dataloader state")
+
+                except Exception as e:
+                    logging.warning(f"Could not load train dataloader state: {e}")
+
+            # Extract iteration number from save path (assumes format "error_iteration_12345")
+            iteration = int(save_path.split("_")[-1])  # fragile parsing; improve if needed
+            logging.info(f"Resuming training from iteration {iteration}")
+
+            return iteration
+
+        except Exception as e:
+            logging.error(f"Error loading training state: {e}")
+            return None
+        
 
 def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1.0):
     error = log_Z + traj_log_pF - log_R - traj_log_pB
