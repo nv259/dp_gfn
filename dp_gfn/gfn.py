@@ -265,6 +265,58 @@ class DPGFN:
         np.save(os.path.join(save_folder, "logZ.npy"), np.array(log_Zs))
         return train_losses, val_losses
 
+    @torch.no_grad()  # This decorator prevents gradient updates
+    def val_step(self, val_loader: DataLoader):
+        """Performs a validation step.
+
+        Args:
+            val_loader (DataLoader): The validation data loader.
+
+        Returns:
+            float: The average loss over the validation set.
+        """
+        self.model.eval()  # Set the model to evaluation mode
+        total_loss = 0
+        total_samples = 0
+
+        for batch in val_loader:
+            word_embeddings = self.model.init_state(
+                input_ids=batch["input_ids"].to(self.device),
+                attention_mask=batch["attention_mask"].to(self.device),
+                word_ids=batch["word_ids"].to(self.device),
+            )
+            log_Z = self.model.logZ(
+                batch["num_words"].to(torch.float32).to(self.device)
+            )
+
+            state = masking.StateBatch(
+                self.batch_size,
+                batch["num_words"][0].item() + 1,
+                batch["num_words"][0].item(),  # Assuming batch size > 1 and consistent number of words
+            )
+            complete_states, traj_log_pF, traj_log_pB = self.sample(
+                word_embeddings, state, self.exp_temp, self.rand_coef
+            )
+
+            log_R = torch.log(
+                scores.reward(
+                    torch.tensor(
+                        complete_states, dtype=torch.float32, device=self.device
+                    ),
+                    batch["graph"].to(torch.bool).to(torch.float32).to(self.device),
+                    scores.frobenius_norm_distance,
+                )
+                + 1e-9
+            )
+            loss, _ = trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
+
+            total_loss += loss.item() * len(batch)  # Weighted average for different batch sizes
+            total_samples += len(batch)
+
+        self.model.train()  # Set the model back to training mode
+        avg_loss = total_loss / total_samples if total_samples > 0 else 0  # Avoid division by zero
+
+        return avg_loss
 
     def inference(
         self,
