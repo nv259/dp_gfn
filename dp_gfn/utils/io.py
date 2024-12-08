@@ -22,10 +22,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
+import os
 from typing import Mapping
 
 import haiku as hk
 import numpy as np
+import matplotlib.pyplot as plt
 
 
 def save(filename, **trees):
@@ -67,3 +69,25 @@ def load(filename, **kwargs):
     del results
 
     return data
+
+
+def save_train_aux(save_folder, iteration, rewards, log_Zs, train_losses):
+    np.save(
+        os.path.join(save_folder, f"rewards_{iteration}.npy"),
+        np.array(rewards),
+    )
+    np.save(
+        os.path.join(save_folder, f"logZ_{iteration}.npy"),
+        np.array(log_Zs),
+    )
+    np.save(
+        os.path.join(save_folder, f"train_losses_{iteration}.npy"),
+        np.array(train_losses),
+    )
+    plt.plot(np.array(train_losses))
+    plt.savefig(
+        os.path.join(save_folder, f"train_losses_{iteration}.png")
+    )
+    plt.close()
+    
+    return [], [], []
