@@ -1,5 +1,7 @@
+import torch
 import torch.nn.functional as F
 import numpy as np
+
 
 MASKED_VALUE = -1e9
 
@@ -202,3 +204,10 @@ class StateBatch:
 
     def check_done(self):
         return self["adjacency"].sum(axis=-1).sum(axis=-1) == self.num_words
+    
+    def reset(self, batch_size=None, num_variables=None, num_words=None):
+        self.__init__(
+            batch_size=batch_size if batch_size is not None else self.batch_size,
+            num_variables=num_variables if num_variables is not None else self.num_variables,
+            num_words=num_words if num_words is not None else self.num_words,
+        )
