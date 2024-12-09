@@ -31,7 +31,8 @@ algorithm:
 
     save_every_n: 10000
     
-train_path: ./data/ud-treebanks-v2.14/UD_English-EWT/en_ewt-ud-train.conllu
+# train_path: ./data/ud-treebanks-v2.14/UD_English-EWT/en_ewt-ud-train.conllu
+train_path: ./sanity-dev.conllu
 save_path: ./output/
 pre_tokenize: True
 dump_foldername: 'zero_exploration/'
@@ -39,4 +40,4 @@ batch_size: 16
 num_workers: 4
 max_number_of_words: 100    # equal to max_number of node in train mode
 seed: 42
-num_tags: 53
+num_tags: 1

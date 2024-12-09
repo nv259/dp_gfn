@@ -1,7 +1,9 @@
 train:
     exp_temp: 1.0
     rand_coef: 0.0
+    p_init: 1.0
     n_grad_accumulation_steps: 4    # not yet implemented
+    syn_batch_size: 4
     max_steps: 100000
     eval_on_train: False
     exploration_rate: 0.05
