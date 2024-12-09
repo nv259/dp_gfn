@@ -36,8 +36,9 @@ train_path: ./sanity-dev.conllu
 save_path: ./output/
 pre_tokenize: True
 dump_foldername: 'zero_exploration/'
-batch_size: 16
-num_workers: 4
+batch_size: 4
+num_workers: 0
 max_number_of_words: 100    # equal to max_number of node in train mode
 seed: 42
 num_tags: 1
+device: cuda:0
