@@ -33,52 +33,70 @@ class DPGFlowNet(nn.Module):
         self.mlp_logZ = MLP(**config.Z_head)
         self.mlp_backward = MLP(**config.backward_head)
 
-    def forward(self, node_embeddings, graph_relations, mask, exp_temp, rand_coef):
+    def forward(self, node_embeddings, graph_relations, mask, actions=None, exp_temp=1., rand_coef=0.):
         hidden = self.backbone(node_embeddings, graph_relations) # TODO: attention mask
 
-        actions, log_pF = self.forward_policy(hidden, mask, exp_temp, rand_coef)
+        actions, log_pF = self.forward_policy(hidden, mask, actions, exp_temp, rand_coef)
         backward_logits = self.backward_logits(hidden, ~torch.any(mask, axis=1))    # TODO: This leaves undue actions valid
 
         return actions, log_pF, backward_logits
     
-    def trace_backward(self, node_embeddings, graph_relations, exp_temp=1., rand_coef=0.):
+    def trace_backward(self, node_embeddings, graph_relations, orig_graph, exp_temp=1., rand_coef=0.):
         B, N, _ = graph_relations.shape
         action_list = deque()
+        orig_graph = orig_graph.to(torch.int).to(node_embeddings.device)
+        mask = torch.any(orig_graph, dim=1).to(node_embeddings.device) 
+        mask[:, 0] = False
         
         self.eval()
         with torch.no_grad():
-            for _ in range(N):
+            for _ in range(N - 1):
                 hidden = self.backbone(node_embeddings, graph_relations)
                 
-                mask = torch.any(graph_relations, dim=1) 
                 backward_logits = self.backward_logits(hidden, mask)
                 
                 dep_ids, log_pB = sample_action(backward_logits, mask, exp_temp, rand_coef)
-                head_ids = get_parent_indices(graph_relations, dep_ids)
-                action_list.append_left(torch.concat((head_ids, dep_ids)), axis=1)
-                  
-                # Remove edges head_ids -> dep_ids in graph_relations
-                graph_relations[:, head_ids, dep_ids] = 0 
+                head_ids = get_parent_indices(orig_graph, dep_ids)
+                action_list.appendleft(torch.concat((head_ids, dep_ids), axis=1))
+                
+                mask[torch.arange(B), dep_ids.squeeze()] = False 
+                # Remove edges in graph_relations (both directions)
+                graph_relations[torch.arange(B), head_ids.squeeze(), dep_ids.squeeze()] = 0
+                graph_relations[torch.arange(B), dep_ids.squeeze(), head_ids.squeeze()] = 0
+
+                # Remove edges in orig_graph (only one direction needed)
+                orig_graph[torch.arange(B), head_ids.squeeze(), dep_ids.squeeze()] = 0
+                          
                 
         self.train() 
         
-        return action_list
+        return torch.stack(list(action_list), 1)
     
     def flow(self, node_embeddings):
         return self.mlp_flow(node_embeddings)
 
-    def forward_policy(self, x, mask, exp_temp=1.0, rand_coef=0.0):
+    def forward_policy(self, x, mask, actions=None, exp_temp=1.0, rand_coef=0.0):
         B, N, D = x.shape
         
         dep_mask = torch.any(mask, axis=1)
         logits = self.mlp_dep(x).squeeze(-1)
-        dep_ids, log_pF_dep = sample_action(logits, dep_mask, exp_temp, rand_coef)
+        if actions:
+            dep_ids = actions[:, 1].unsqueeze(1)
+            logits = mask_logits(logits, dep_mask)
+            log_pF_dep = logits.log_softmax(1).gather(1, dep_ids).squeeze(-1)
+        else: 
+            dep_ids, log_pF_dep = sample_action(logits, dep_mask, exp_temp, rand_coef)
 
         head_mask = mask.take_along_dim(dep_ids.unsqueeze(-1), -1).squeeze(-1)
         x_deps = x.gather(1, dep_ids.unsqueeze(-1).expand(-1, -1, D)).expand(-1, N, -1)
         logits = self.mlp_head(x.view((B*N, D)), x_deps.reshape((B*N, D))).squeeze(-1)
         logits = logits.view((B, N))
-        head_ids, log_pF_head = sample_action(logits, head_mask, exp_temp, rand_coef)
+        if actions:
+            head_ids = actions[:, 0].unsqueeze(1)
+            logits = mask_logits(logits, head_mask)
+            log_pF_head = logits.log_softmax(1).gather(1, head_ids).squeeze(-1)
+        else:
+            head_ids, log_pF_head = sample_action(logits, head_mask, exp_temp, rand_coef)
 
         return torch.concat((head_ids, dep_ids), axis=1), (log_pF_head, log_pF_dep)
 
