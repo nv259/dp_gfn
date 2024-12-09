@@ -67,7 +67,7 @@ class DPGFlowNet(nn.Module):
                 # Remove edges in orig_graph (only one direction needed)
                 orig_graph[torch.arange(B), head_ids.squeeze(), dep_ids.squeeze()] = 0
                           
-                
+        action_list.append(torch.concat((head_ids, dep_ids), axis=1))   # dummy
         self.train() 
         
         return torch.stack(list(action_list), 1)
@@ -80,7 +80,7 @@ class DPGFlowNet(nn.Module):
         
         dep_mask = torch.any(mask, axis=1)
         logits = self.mlp_dep(x).squeeze(-1)
-        if actions:
+        if actions is not None:
             dep_ids = actions[:, 1].unsqueeze(1)
             logits = mask_logits(logits, dep_mask)
             log_pF_dep = logits.log_softmax(1).gather(1, dep_ids).squeeze(-1)
@@ -91,7 +91,7 @@ class DPGFlowNet(nn.Module):
         x_deps = x.gather(1, dep_ids.unsqueeze(-1).expand(-1, -1, D)).expand(-1, N, -1)
         logits = self.mlp_head(x.view((B*N, D)), x_deps.reshape((B*N, D))).squeeze(-1)
         logits = logits.view((B, N))
-        if actions:
+        if actions is not None:
             head_ids = actions[:, 0].unsqueeze(1)
             logits = mask_logits(logits, head_mask)
             log_pF_head = logits.log_softmax(1).gather(1, head_ids).squeeze(-1)

@@ -38,7 +38,8 @@ class DPGFN:
         self.batch_size = config.batch_size
         self.dump_foldername = config.dump_foldername
         self.max_number_of_words = config.max_number_of_words
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = torch.device(config.device)
 
         config = config.algorithm
         self.max_steps = config.train.max_steps
@@ -120,7 +121,7 @@ class DPGFN:
             rand_coef=rand_coef
         )
         
-        log_pF, backward_logits = self.model(
+        actions, log_pF, backward_logits = self.model(
             node_embeddings=node_embeddings,
             graph_relations=graph_relations,
             mask=torch.tensor(states['mask']).to(self.device),
@@ -199,16 +200,16 @@ class DPGFN:
 
                     # Synthesize trajectories using pB
                     state.reset(self.syn_batch_size) 
-                    graph_squeeze = batch["graph"][:, :state.num_words + 1, :state.num_words + 1].to(torch.bool).expand(self.syn_batch_size, -1, -1)
+                    graph_squeeze = batch["graph"][:, :state.num_words + 1, :state.num_words + 1].to(torch.bool).expand(self.syn_batch_size, -1, -1).to(self.device)
                     terminal_states = create_graph_relations(graph_squeeze, self.num_tags, self.device)
                     syn_traj_log_pF, syn_traj_log_pB = self.synthesize_trajectory(
                         word_embeddings, state, terminal_states, graph_squeeze, self.exp_temp, self.rand_coef
                     )
                     
                     # Gather both forward trajectories and backward trajectories
-                    complete_states = torch.cat([complete_states, batch["graph"]], dim=0)
-                    traj_log_pB = torch.cat([traj_log_pB, syn_traj_log_pB], dim=0)
+                    complete_states = torch.cat([torch.tensor(complete_states, device=self.device), graph_squeeze], dim=0)
                     traj_log_pF = torch.cat([traj_log_pF, syn_traj_log_pF], dim=0)
+                    traj_log_pB = torch.cat([traj_log_pB, syn_traj_log_pB], dim=0)
 
                     # Calculate reward                
                     log_R = torch.log(
