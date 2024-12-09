@@ -9,6 +9,7 @@ from tqdm import trange
 
 from dp_gfn.nets.gflownet import DPGFlowNet
 from dp_gfn.utils import masking, scores, io
+from dp_gfn.utils.misc import create_graph_relations
 # from dp_gfn.utils.replay_buffer import ReplayBuffer
 
 try:
@@ -107,13 +108,14 @@ class DPGFN:
 
         return states["adjacency"], traj_log_pF, traj_log_pB
 
-    def synthesize_trajectory(self, node_embeddings, states, graph_relations, exp_temp=1.0, rand_coef=0.0):
+    def synthesize_trajectory(self, node_embeddings, states, graph_relations, orig_graph, exp_temp=1.0, rand_coef=0.0):
         traj_log_pF = torch.zeros((self.syn_batch_size,), dtype=torch.float32, device=self.device)
         traj_log_pB = torch.zeros((self.syn_batch_size,), dtype=torch.float32, device=self.device)
        
         action_list = self.model.trace_backward(
             node_embeddings=node_embeddings,
             graph_relations=graph_relations,
+            orig_graph=orig_graph,
             exp_temp=exp_temp,
             rand_coef=rand_coef
         )
@@ -121,8 +123,8 @@ class DPGFN:
         log_pF, backward_logits = self.model(
             node_embeddings=node_embeddings,
             graph_relations=graph_relations,
-            mask=torch.tensor(states['mask'].to(self.device)),
-            actions=action_list[0],
+            mask=torch.tensor(states['mask']).to(self.device),
+            actions=action_list[:, 0],
             exp_temp=exp_temp,
             rand_coef=rand_coef
         ) 
@@ -137,14 +139,14 @@ class DPGFN:
                 node_embeddings=node_embeddings,
                 graph_relations=torch.tensor(states["relations"], device=self.device),
                 mask=torch.tensor(states["mask"]).to(self.device),
-                actions=action_list[step + 1],
+                actions=action_list[:, step + 1],
                 exp_temp=exp_temp,
                 rand_coef=rand_coef,
             )
 
             traj_log_pB += (
                 backward_logits.log_softmax(1)
-                .gather(1, action_list[step][:, 1].unsqueeze(-1))
+                .gather(1, action_list[:, step, 1].unsqueeze(-1))   # FIXME: 
                 .squeeze(-1)
             )
             
@@ -196,13 +198,15 @@ class DPGFN:
                     )
 
                     # Synthesize trajectories using pB
-                    state.reset(self.syn_batch_size)
+                    state.reset(self.syn_batch_size) 
+                    graph_squeeze = batch["graph"][:, :state.num_words + 1, :state.num_words + 1].to(torch.bool).expand(self.syn_batch_size, -1, -1)
+                    terminal_states = create_graph_relations(graph_squeeze, self.num_tags, self.device)
                     syn_traj_log_pF, syn_traj_log_pB = self.synthesize_trajectory(
-                        word_embeddings, state, batch["graph"], self.exp_temp, self.rand_coef
+                        word_embeddings, state, terminal_states, graph_squeeze, self.exp_temp, self.rand_coef
                     )
                     
                     # Gather both forward trajectories and backward trajectories
-                    complete_states = torch.cat([complete_states, batch["graph"].repeat(self.syn_batch_size, 1, 1)], dim=0)
+                    complete_states = torch.cat([complete_states, batch["graph"]], dim=0)
                     traj_log_pB = torch.cat([traj_log_pB, syn_traj_log_pB], dim=0)
                     traj_log_pF = torch.cat([traj_log_pF, syn_traj_log_pF], dim=0)
 
