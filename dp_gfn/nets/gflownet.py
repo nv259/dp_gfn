@@ -1,10 +1,11 @@
-import dgl
+from collections import deque
 import torch
 from torch import nn
 from transformers import AutoModel
 
 from dp_gfn.nets.encoders import MLP, BiAffine, TransformerEncoder
 from dp_gfn.utils.masking import sample_action, mask_logits
+from dp_gfn.utils.misc import get_parent_indices
 from dp_gfn.utils.pretrains import token_to_word_embeddings
 
 
@@ -39,6 +40,32 @@ class DPGFlowNet(nn.Module):
         backward_logits = self.backward_logits(hidden, ~torch.any(mask, axis=1))    # TODO: This leaves undue actions valid
 
         return actions, log_pF, backward_logits
+    
+    def trace_backward(self, node_embeddings, graph_relations, exp_temp=1., rand_coef=0.):
+        B, N, _ = graph_relations.shape
+        action_list = deque()
+        
+        self.eval()
+        with torch.no_grad():
+            for _ in range(N):
+                hidden = self.backbone(node_embeddings, graph_relations)
+                
+                mask = torch.any(graph_relations, dim=1) 
+                backward_logits = self.backward_logits(hidden, mask)
+                
+                dep_ids, log_pB = sample_action(backward_logits, mask, exp_temp, rand_coef)
+                head_ids = get_parent_indices(graph_relations, dep_ids)
+                action_list.append_left(torch.concat((head_ids, dep_ids)), axis=1)
+                  
+                # Remove edges head_ids -> dep_ids in graph_relations
+                graph_relations[:, head_ids, dep_ids] = 0 
+                
+        self.train() 
+        
+        return action_list
+    
+    def flow(self, node_embeddings):
+        return self.mlp_flow(node_embeddings)
 
     def forward_policy(self, x, mask, exp_temp=1.0, rand_coef=0.0):
         B, N, D = x.shape
