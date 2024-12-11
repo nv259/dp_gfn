@@ -9,7 +9,7 @@ from tqdm import trange
 
 from dp_gfn.nets.gflownet import DPGFlowNet
 from dp_gfn.utils import masking, scores, io
-from dp_gfn.utils.misc import create_graph_relations
+from dp_gfn.utils.misc import create_graph_relations, to_undirected
 # from dp_gfn.utils.replay_buffer import ReplayBuffer
 
 try:
@@ -81,6 +81,7 @@ class DPGFN:
             node_embeddings=node_embeddings,
             graph_relations=torch.tensor(states["relations"], device=self.device),
             mask=torch.tensor(states["mask"]).to(self.device),
+            attn_mask=to_undirected(states._closure_A, self.device),
             exp_temp=exp_temp,
             rand_coef=rand_coef,
         )
@@ -97,6 +98,7 @@ class DPGFN:
                 node_embeddings=node_embeddings,
                 graph_relations=torch.tensor(states["relations"], device=self.device),
                 mask=torch.tensor(states["mask"]).to(self.device),
+                attn_mask=to_undirected(states._closure_A, self.device),
                 exp_temp=exp_temp,
                 rand_coef=rand_coef,
             )
@@ -117,6 +119,7 @@ class DPGFN:
             node_embeddings=node_embeddings,
             graph_relations=graph_relations,
             orig_graph=orig_graph,
+            attn_mask=to_undirected(states._closure_A, self.device),
             exp_temp=exp_temp,
             rand_coef=rand_coef
         )
@@ -125,6 +128,7 @@ class DPGFN:
             node_embeddings=node_embeddings,
             graph_relations=graph_relations,
             mask=torch.tensor(states['mask']).to(self.device),
+            attn_mask=to_undirected(states._closure_A, self.device),
             actions=action_list[:, 0],
             exp_temp=exp_temp,
             rand_coef=rand_coef
@@ -140,6 +144,7 @@ class DPGFN:
                 node_embeddings=node_embeddings,
                 graph_relations=torch.tensor(states["relations"], device=self.device),
                 mask=torch.tensor(states["mask"]).to(self.device),
+                attn_mask=to_undirected(states._closure_A, self.device),
                 actions=action_list[:, step + 1],
                 exp_temp=exp_temp,
                 rand_coef=rand_coef,
@@ -147,7 +152,7 @@ class DPGFN:
 
             traj_log_pB += (
                 backward_logits.log_softmax(1)
-                .gather(1, action_list[:, step, 1].unsqueeze(-1))   # FIXME: 
+                .gather(1, action_list[:, step, 1].unsqueeze(-1))
                 .squeeze(-1)
             )
             
@@ -180,7 +185,8 @@ class DPGFN:
                         input_ids=batch["input_ids"].to(self.device),
                         attention_mask=batch["attention_mask"].to(self.device),
                         word_ids=batch["word_ids"].to(self.device),
-                    )
+                    ) 
+                    
                     log_Z = self.model.logZ(
                         batch["num_words"].to(torch.float32).to(self.device)
                     )

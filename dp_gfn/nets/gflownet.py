@@ -33,15 +33,15 @@ class DPGFlowNet(nn.Module):
         self.mlp_logZ = MLP(**config.Z_head)
         self.mlp_backward = MLP(**config.backward_head)
 
-    def forward(self, node_embeddings, graph_relations, mask, actions=None, exp_temp=1., rand_coef=0.):
-        hidden = self.backbone(node_embeddings, graph_relations) # TODO: attention mask
+    def forward(self, node_embeddings, graph_relations, mask, attn_mask, actions=None, exp_temp=1., rand_coef=0.):
+        hidden = self.backbone(node_embeddings, graph_relations, attn_mask) # TODO: attention mask
 
         actions, log_pF = self.forward_policy(hidden, mask, actions, exp_temp, rand_coef)
         backward_logits = self.backward_logits(hidden, ~torch.any(mask, axis=1))    # TODO: This leaves undue actions valid
 
         return actions, log_pF, backward_logits
     
-    def trace_backward(self, node_embeddings, graph_relations, orig_graph, exp_temp=1., rand_coef=0.):
+    def trace_backward(self, node_embeddings, graph_relations, orig_graph, attn_mask=None, exp_temp=1., rand_coef=0.):
         B, N, _ = graph_relations.shape
         action_list = deque()
         orig_graph = orig_graph.to(torch.int).to(node_embeddings.device)
@@ -51,7 +51,7 @@ class DPGFlowNet(nn.Module):
         self.eval()
         with torch.no_grad():
             for _ in range(N - 1):
-                hidden = self.backbone(node_embeddings, graph_relations)
+                hidden = self.backbone(node_embeddings, graph_relations, attn_mask)
                 
                 backward_logits = self.backward_logits(hidden, mask)
                 

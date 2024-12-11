@@ -65,3 +65,8 @@ def create_graph_relations(graphs, num_tags, device):
                     terminal_states[b, j, i] = terminal_states[b, i, j] + num_tags
                 
     return terminal_states.to(device)
+
+
+def to_undirected(adjacency_matrices, device=None):
+    undirected_adj = adjacency_matrices | adjacency_matrices.transpose(0, 2, 1)
+    return undirected_adj if device is None else torch.tensor(undirected_adj, device=device)
