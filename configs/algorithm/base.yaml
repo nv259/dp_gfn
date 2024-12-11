@@ -1,7 +1,9 @@
 train:
     exp_temp: 1.0
     rand_coef: 0.0
+    p_init: 1.0
     n_grad_accumulation_steps: 4    # not yet implemented
+    syn_batch_size: 0
     max_steps: 100000
     eval_on_train: False
     exploration_rate: 0.05
@@ -9,8 +11,8 @@ train:
 
     optimizer:
         name: Adam
-        gfn_lr: 1e-3
-        Z_lr: 3e-3
+        gfn_lr: 1e-4
+        Z_lr: 5e-4
 
         bert_factor: 0.0  # pretrained lr 
 

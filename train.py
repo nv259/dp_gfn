@@ -68,7 +68,8 @@ def main(config):
     logging.info("Initializing Algorithm")
     algorithm = DPGFN(
         config=config, 
-        num_tags=num_tags, 
+        # num_tags=num_tags, 
+        num_tags=config.num_tags,
         id2rel=id2rel,
         # pretrained_path="/mnt/yth/dp_gfn/output/logging_rewards_/run_bs=12_epsilon=0.005_dim=256_nlayers=3_nheads=4/model_2000.npz"
     )

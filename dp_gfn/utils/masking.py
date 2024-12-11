@@ -21,7 +21,8 @@ def decode(encoded, num_variables):
 def batched_base_mask(
     batch_size: int,
     num_variables: int,
-    num_words: int
+    num_words: int,
+    use_virtual_node: bool=False,
 ) -> np.ndarray:
     """Generate batch of base masks for initial graph with shape [batch_size, num_variables, num_variables], i.e., batchified version of base_mask
 
@@ -29,6 +30,7 @@ def batched_base_mask(
         batch_size (int): Batch size
         num_variables (int): Total number of nodes in the graphs (including [ROOT] and [PAD])
         num_words_list (list[int]): List of actual number of nodes w.r.t each graph (excluding [PAD])
+        use_virtual_node (bool): Whether output mask should include virtual node
 
     Returns:
         np.ndarray: base mask with shape [batch_size, num_variables, num_variables]
@@ -38,6 +40,10 @@ def batched_base_mask(
 
     mask[:, num_words + 1 :, :] = False
     mask[:, :, num_words + 1 :] = False
+    
+    if use_virtual_node:
+        mask[:, -1, :] = False
+        mask[:, :, -1] = False
 
     return mask
 
@@ -94,10 +100,17 @@ class StateBatch:
         batch_size,
         num_variables,
         num_words,
+        use_virtual_node=True
     ):
         self.batch_size = batch_size
         self.num_words = num_words
-        self.num_variables = num_variables
+        self.use_virtual_node = use_virtual_node
+         
+        if use_virtual_node:
+            self.num_variables = num_variables + 1
+        else: 
+            self.num_variables = num_variables
+        
         self.indices = np.arange(self.batch_size)
 
         self._data = {
@@ -105,7 +118,8 @@ class StateBatch:
             "mask": batched_base_mask(
                 batch_size=self.batch_size,
                 num_variables=self.num_variables,
-                num_words=num_words
+                num_words=num_words,
+                use_virtual_node=use_virtual_node
             ),
             "adjacency": np.zeros(
                 (self.batch_size, self.num_variables, self.num_variables),
@@ -122,11 +136,17 @@ class StateBatch:
             self.batch_size,
             axis=0,
         )
+        self._closure_A = self._closure_T.copy()
         
         # Exclude incoming edges to ROOT
         self._closure_T[:, :, 0] = True
         # self._closure_T[:, self.num_words + 1 :, :] = True
         # self._closure_T[:, :, self.num_words + 1 :] = True
+        
+        # Exclude all edges connected to virtual node
+        self._closure_T[:, -1, :] = True
+        self._closure_T[:, :, -1] = True
+        self._closure_A[:, -1, :] = True
         
         # # Who let a sentence with only one word here :D?
         # for i in range(self.batch_size):
@@ -153,7 +173,8 @@ class StateBatch:
             "adjacency": adjacency,
         }
 
-    ## The base code of this function is from: https://github.com/tristandeleu/jax-dag-gflownet/blob/master/dag_gflownet/env.py#L96
+    ## The base code of this function is from: 
+    ## https://github.com/tristandeleu/jax-dag-gflownet/blob/master/dag_gflownet/env.py#L96
     def step(self, actions):
         sources, targets = actions[:, 0], actions[:, 1]
 
@@ -185,11 +206,13 @@ class StateBatch:
         # Update transitive closure of transpose
         source_rows = np.expand_dims(self._closure_T[self.indices, sources, :], axis=1)
         target_cols = np.expand_dims(self._closure_T[self.indices, :, targets], axis=2)
-        self._closure_T |= np.logical_and(
-            source_rows, target_cols
-        )  # Outer product
-        # self._closure_T = np.eye(self.num_variables, dtype=np.bool_)
-
+        self._closure_T |= np.logical_and(source_rows, target_cols)
+        
+        # Update transitive closure
+        source_rows = np.expand_dims(self._closure_A[self.indices, :, sources], axis=2)
+        target_cols = np.expand_dims(self._closure_A[self.indices, targets, :], axis=1)
+        self._closure_A |= np.logical_and(source_rows, target_cols)
+        
         # Update the mask
         self._data["mask"] = 1 - (self._data["adjacency"] + self._closure_T)
         num_parents = np.sum(self["adjacency"], axis=1, keepdims=True)
@@ -206,8 +229,12 @@ class StateBatch:
         return self["adjacency"].sum(axis=-1).sum(axis=-1) == self.num_words
     
     def reset(self, batch_size=None, num_variables=None, num_words=None):
+        if self.use_virtual_node:
+            self.num_variables -= 1
+            
         self.__init__(
             batch_size=batch_size if batch_size is not None else self.batch_size,
             num_variables=num_variables if num_variables is not None else self.num_variables,
             num_words=num_words if num_words is not None else self.num_words,
+            use_virtual_node=self.use_virtual_node
         )

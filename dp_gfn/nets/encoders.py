@@ -64,8 +64,8 @@ class TransformerEncoderLayer(nn.Module):
         self.ffn = MLP([embed_dim, embed_dim * 2, embed_dim])
         self.ffn_layer_norm = nn.LayerNorm(embed_dim)
         
-    def forward(self, x, graph_relations):
-        x = x + self.attention(x, x, x, graph_relations)
+    def forward(self, x, graph_relations, attn_mask=None):
+        x = x + self.attention(x, x, x, graph_relations, attn_mask)
         x = self.attn_layer_norm(x)
         x = x + self.ffn(x)
         x = self.ffn_layer_norm(x)
@@ -80,8 +80,8 @@ class TransformerEncoder(nn.Module):
         self.layers = nn.ModuleList([TransformerEncoderLayer(embed_dim, n_heads, num_relations, dropout)
                        for _ in range(n_layers)])
         
-    def forward(self, x, graph_relations):
+    def forward(self, x, graph_relations, attn_mask=None):
         for layer in self.layers:
-            x = layer(x, graph_relations)
+            x = layer(x, graph_relations, attn_mask)
             
         return x

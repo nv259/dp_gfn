@@ -7,7 +7,7 @@ import torch
 
 
 def reward(predict, gold, graph_distance_fn):
-    return ((1.0 - graph_distance_fn(predict, gold)) >= 0.7)
+    return ((1.0 - graph_distance_fn(predict, gold)) >= 0.99)
 
 
 def unlabeled_graph_edit_distance(predict, gold):
