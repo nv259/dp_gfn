@@ -3,39 +3,106 @@ defaults:
     - algorithm: base
     - _self_
 
-# model:
-    # common:
-     
-    # initializer
+model:
+    # common hyperparams (all sub-models will inherit these hyperparams if not specified)
+    common:
+        hidden_layers: [256, 128]
+        dropout: 0.0
+        activation: ReLU
 
-    # backbone:
-        
-    # label_scorer:
+    initializer:
+        pretrained_path: FacebookAI/xlm-roberta-base
+        trainable: False
+        agg_func: mean
+        max_word_length: ${max_number_of_words}
 
-    # forward_head
+    backbone:
+        n_layers: 4
+        embed_dim: 256
+        n_heads: 4
+        num_relations: 3
+        dropout: 0.
+        # name: GATConv
+        # d_model: 256
+        # attr: 
+        #     out_feats: 64
+        #     num_heads: 4
 
-    # backward_head
+        # name: EdgeGATConv
+        # attr:
+        #     out_feats: 64
+        #     edge_feats: 256
+        #     num_heads: 4
 
-    # Z_head
+
+    label_scorer:
+        hidden_layers: ${model.common.hidden_layers}
+        dropout: ${model.common.dropout}
+        activation: ${model.common.activation}
+
+    forward_head:
+        dep: 
+            output_sizes: [128, 1]
+            dropout: ${model.common.dropout}
+            activation: ${model.common.activation}  
+
+    backward_head:
+        output_sizes: [128, 1]
+        activation: ${model.common.activation}
+        dropout: ${model.common.dropout}
+
+    Z_head:
+        output_sizes: [1, 64, 1]
+        activation: ${model.common.activation}
+        dropout: ${model.common.dropout}
+
+    num_variables: ${max_number_of_words}
 
 algorithm:
-    reward_scale_factor: 2
+    train:
+        exp_temp: 1.0
+        rand_coef: 0.0
+        p_init: 1.0
+        n_grad_accumulation_steps: 4    # not yet implemented
+        syn_batch_size: 2
+        max_steps: 100000
+        eval_on_train: False
+        exploration_rate: 0.05
+        clip_grad: 10   # not yet implemented
 
-    eval_every_n: 1000
+        optimizer:
+            name: Adam
+            gfn_lr: 1e-4
+            Z_lr: 5e-4
 
-    exploration_scheduler: 
-        init_value: 0.0005
-        end_value: 0.
-        transition_steps: 1000
-        transition_begin: 1000
+            bert_factor: 0.0  # pretrained lr 
 
-    save_every_n: 10000
+        lr_scheduler: 
+            start_lr: 1e-3
+            end_lr: 0
+            decay_step: null
+            power: null
+
+        exploration_scheduler: 
+            init_value: 0.005
+            end_value: 0.
+            transition_steps: 10000
+            transition_begin: 5000
+
+        eval_every_n: 1000
+        save_every_n: 5000
+
+        backward_policy: null   # fix uniform by default
+        score_fn: null          # graph edit distance by default
+
+    reward_scale_factor: 10
     
 # train_path: ./data/ud-treebanks-v2.14/UD_English-EWT/en_ewt-ud-train.conllu
 train_path: ./sanity-dev.conllu
 save_path: ./output/
 pre_tokenize: True
 dump_foldername: 'zero_exploration/'
+use_virtual_node: True
 batch_size: 4
 num_workers: 0
 max_number_of_words: 100    # equal to max_number of node in train mode
