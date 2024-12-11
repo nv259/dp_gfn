@@ -43,15 +43,16 @@ class DPGFlowNet(nn.Module):
     
     def trace_backward(self, node_embeddings, graph_relations, orig_graph, attn_mask=None, exp_temp=1., rand_coef=0.):
         B, N, _ = graph_relations.shape
+        N = N - 1   # remove virtual nodes
         action_list = deque()
         orig_graph = orig_graph.to(torch.int).to(node_embeddings.device)
         mask = torch.any(orig_graph, dim=1).to(node_embeddings.device) 
-        mask[:, 0] = False
+        mask[:, 0], mask[:, -1] = False, False
         
         self.eval()
         with torch.no_grad():
             for _ in range(N - 1):
-                hidden = self.backbone(node_embeddings, graph_relations, attn_mask)
+                hidden = self.backbone(node_embeddings, graph_relations, attn_mask) # FIXME: attn_mask does not reflect the reachability-of-graph
                 
                 backward_logits = self.backward_logits(hidden, mask)
                 
@@ -98,10 +99,13 @@ class DPGFlowNet(nn.Module):
         else:
             head_ids, log_pF_head = sample_action(logits, head_mask, exp_temp, rand_coef)
 
+        assert (dep_mask[:, 0] == False).all() and (dep_mask[:, -1] == False).all(), "Invalid mask"
+        assert (head_mask[:, -1] == False).all(), "Invalid mask"
+
         return torch.concat((head_ids, dep_ids), axis=1), (log_pF_head, log_pF_dep)
 
     def backward_logits(self, x, mask):
-        mask[:, 0] = False
+        mask[:, 0], mask[:, -1] = False, False
         logits = self.mlp_backward(x).squeeze(-1)
         logits = mask_logits(logits, mask)
 

@@ -40,6 +40,10 @@ def batched_base_mask(
 
     mask[:, num_words + 1 :, :] = False
     mask[:, :, num_words + 1 :] = False
+    
+    if use_virtual_node:
+        mask[:, -1, :] = False
+        mask[:, :, -1] = False
 
     return mask
 
@@ -96,10 +100,16 @@ class StateBatch:
         batch_size,
         num_variables,
         num_words,
+        use_virtual_node=True
     ):
         self.batch_size = batch_size
         self.num_words = num_words
-        self.num_variables = num_variables
+        self.use_virtual_node = use_virtual_node
+         
+        if use_virtual_node:
+            self.num_variables = num_variables + 1
+        else: 
+            self.num_variables = num_variables
         
         self.indices = np.arange(self.batch_size)
 
@@ -108,7 +118,8 @@ class StateBatch:
             "mask": batched_base_mask(
                 batch_size=self.batch_size,
                 num_variables=self.num_variables,
-                num_words=num_words
+                num_words=num_words,
+                use_virtual_node=use_virtual_node
             ),
             "adjacency": np.zeros(
                 (self.batch_size, self.num_variables, self.num_variables),
@@ -131,6 +142,11 @@ class StateBatch:
         self._closure_T[:, :, 0] = True
         # self._closure_T[:, self.num_words + 1 :, :] = True
         # self._closure_T[:, :, self.num_words + 1 :] = True
+        
+        # Exclude all edges connected to virtual node
+        self._closure_T[:, -1, :] = True
+        self._closure_T[:, :, -1] = True
+        self._closure_A[:, -1, :] = True
         
         # # Who let a sentence with only one word here :D?
         # for i in range(self.batch_size):
@@ -157,7 +173,8 @@ class StateBatch:
             "adjacency": adjacency,
         }
 
-    ## The base code of this function is from: https://github.com/tristandeleu/jax-dag-gflownet/blob/master/dag_gflownet/env.py#L96
+    ## The base code of this function is from: 
+    ## https://github.com/tristandeleu/jax-dag-gflownet/blob/master/dag_gflownet/env.py#L96
     def step(self, actions):
         sources, targets = actions[:, 0], actions[:, 1]
 
@@ -212,8 +229,12 @@ class StateBatch:
         return self["adjacency"].sum(axis=-1).sum(axis=-1) == self.num_words
     
     def reset(self, batch_size=None, num_variables=None, num_words=None):
+        if self.use_virtual_node:
+            self.num_variables -= 1
+            
         self.__init__(
             batch_size=batch_size if batch_size is not None else self.batch_size,
             num_variables=num_variables if num_variables is not None else self.num_variables,
             num_words=num_words if num_words is not None else self.num_words,
+            use_virtual_node=self.use_virtual_node
         )

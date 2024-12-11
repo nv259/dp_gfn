@@ -4,6 +4,7 @@ import traceback
 
 import numpy as np
 import torch
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from tqdm import trange
 
@@ -29,6 +30,10 @@ class DPGFN:
         self.initialize_vars(config)
         self.model = DPGFlowNet(config.model)
         self.model = self.model.to(self.device)
+        self.x2g = torch.nn.Linear(
+            in_features=self.model.hidden_dim, 
+            out_features=self.model.hidden_dim
+        ).to(self.device)   # Mapping the mean of nodes embeddings to create virtual node
         self.initialize_policy(config.algorithm)
 
         if pretrained_path is not None:
@@ -38,6 +43,8 @@ class DPGFN:
         self.batch_size = config.batch_size
         self.dump_foldername = config.dump_foldername
         self.max_number_of_words = config.max_number_of_words
+        self.use_virtual_node = config.use_virtual_node
+
         # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = torch.device(config.device)
 
@@ -119,7 +126,7 @@ class DPGFN:
             node_embeddings=node_embeddings,
             graph_relations=graph_relations,
             orig_graph=orig_graph,
-            attn_mask=to_undirected(states._closure_A, self.device),
+            # attn_mask=to_undirected(states._closure_A, self.device),
             exp_temp=exp_temp,
             rand_coef=rand_coef
         )
@@ -185,7 +192,10 @@ class DPGFN:
                         input_ids=batch["input_ids"].to(self.device),
                         attention_mask=batch["attention_mask"].to(self.device),
                         word_ids=batch["word_ids"].to(self.device),
-                    ) 
+                    )
+                    if self.use_virtual_node:
+                        graph_embeddings = self.x2g(word_embeddings.mean(axis=-2, keepdims=True))
+                        word_embeddings = torch.concat([word_embeddings, graph_embeddings], axis=1)
                     
                     log_Z = self.model.logZ(
                         batch["num_words"].to(torch.float32).to(self.device)
@@ -206,14 +216,15 @@ class DPGFN:
 
                     # Synthesize trajectories using pB
                     state.reset(self.syn_batch_size) 
-                    graph_squeeze = batch["graph"][:, :state.num_words + 1, :state.num_words + 1].to(torch.bool).expand(self.syn_batch_size, -1, -1).to(self.device)
+                    graph_squeeze = batch["graph"][:, :state.num_words + 1, :state.num_words + 1].to(torch.bool)
+                    graph_squeeze = F.pad(graph_squeeze, (0, 1, 0, 1), value=False).expand(self.syn_batch_size, -1, -1)
                     terminal_states = create_graph_relations(graph_squeeze, self.num_tags, self.device)
                     syn_traj_log_pF, syn_traj_log_pB = self.synthesize_trajectory(
                         word_embeddings, state, terminal_states, graph_squeeze, self.exp_temp, self.rand_coef
                     )
                     
                     # Gather both forward trajectories and backward trajectories
-                    complete_states = torch.cat([torch.tensor(complete_states, device=self.device), graph_squeeze], dim=0)
+                    complete_states = torch.cat([torch.tensor(complete_states, device=self.device), graph_squeeze.to(self.device)], dim=0)
                     traj_log_pF = torch.cat([traj_log_pF, syn_traj_log_pF], dim=0)
                     traj_log_pB = torch.cat([traj_log_pB, syn_traj_log_pB], dim=0)
 

@@ -100,7 +100,7 @@ class RelationAwareAttention(nn.Module):
 
         if attn_mask is not None:
             # Apply DAG reachability-based attention
-            Q_KE = Q_KE.masked_fill(~attn_mask, -1e9)
+            Q_KE = Q_KE.masked_fill(~attn_mask.unsqueeze(1), -1e9)
         
         e = nn.Softmax(dim=-1)(Q_KE)
         e = self.dropout(e)
