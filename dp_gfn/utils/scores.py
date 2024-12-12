@@ -7,6 +7,10 @@ import torch
 
 
 def reward(predict, gold, graph_distance_fn):
+    N = min(predict.shape[1], gold.shape[1])
+    predict = predict[:, :N, :N]
+    gold = gold[:, :N, :N]
+    
     return ((1.0 - graph_distance_fn(predict, gold)) >= 0.99)
 
 
