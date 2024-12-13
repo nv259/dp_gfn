@@ -49,7 +49,7 @@ def get_dependency_relation_dict(path_to_stats_file: str) -> dict:
     rel_id = {}
     for idx, dep in enumerate(deps.findall("dep")):
         rel = dep.get("name")
-        rel_id[rel] = idx
+        rel_id[rel] = idx + 1
 
     return rel_id
 
