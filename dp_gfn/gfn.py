@@ -30,10 +30,6 @@ class DPGFN:
         self.initialize_vars(config)
         self.model = DPGFlowNet(config.model)
         self.model = self.model.to(self.device)
-        self.x2g = torch.nn.Linear(
-            in_features=self.model.hidden_dim, 
-            out_features=self.model.hidden_dim
-        ).to(self.device)   # Mapping the mean of nodes embeddings to create virtual node
         self.initialize_policy(config.algorithm)
 
         if pretrained_path is not None:
@@ -97,7 +93,6 @@ class DPGFN:
             traj_log_pF += log_pF[1] + log_pF[0]
 
             np_actions = actions.cpu().numpy()
-            # print(np_actions)
             states.step(np_actions)
             prev_actions = actions.clone()
 
@@ -192,10 +187,8 @@ class DPGFN:
                         input_ids=batch["input_ids"].to(self.device),
                         attention_mask=batch["attention_mask"].to(self.device),
                         word_ids=batch["word_ids"].to(self.device),
+                        use_virtual_node=self.use_virtual_node,
                     )
-                    if self.use_virtual_node:
-                        graph_embeddings = self.x2g(word_embeddings.mean(axis=-2, keepdims=True))
-                        word_embeddings = torch.concat([word_embeddings, graph_embeddings], axis=1)
                     
                     log_Z = self.model.logZ(
                         batch["num_words"].to(torch.float32).to(self.device)
@@ -207,6 +200,7 @@ class DPGFN:
                         batch["num_words"][0].item()
                         + 1,  # TODO: Generalize to num_variables
                         batch["num_words"][0].item(),
+                        use_virtual_node=self.use_virtual_node,
                     )
                     
                     # Collect trajectories using pF
@@ -306,6 +300,7 @@ class DPGFN:
                 input_ids=batch["input_ids"].to(self.device),
                 attention_mask=batch["attention_mask"].to(self.device),
                 word_ids=batch["word_ids"].to(self.device),
+                use_virtual_node=self.use_virtual_node,
             )
             log_Z = self.model.logZ(
                 batch["num_words"].to(torch.float32).to(self.device)
@@ -315,6 +310,7 @@ class DPGFN:
                 self.batch_size,
                 batch["num_words"][0].item() + 1,
                 batch["num_words"][0].item(),  # Assuming batch size > 1 and consistent number of words
+                use_virtual_node=self.use_virtual_node
             )
             complete_states, traj_log_pF, traj_log_pB = self.sample(
                 word_embeddings, state, self.exp_temp, self.rand_coef
@@ -339,11 +335,54 @@ class DPGFN:
         avg_loss = total_loss / total_samples if total_samples > 0 else 0  # Avoid division by zero
 
         return avg_loss
+    
+    @torch.no_grad()
+    def evaluate(self, val_loader: DataLoader, use_virtual_node=False):
+        """Evaluates the model on a validation set and returns UAS and LAS scores.
 
-    def inference(
-        self,
-    ):
-        pass
+        Args:
+            val_loader (DataLoader): The validation data loader.
+
+        Returns:
+            tuple: A tuple containing the UAS and LAS scores.
+        """
+        self.model.eval()
+        total_correct_unlabeled = 0
+        total_correct_labeled = 0
+        total_edges = 0
+        
+        for batch in val_loader:
+            word_embeddings = self.model.init_state(
+                input_ids=batch["input_ids"].to(self.device),
+                attention_mask=batch["attention_mask"].to(self.device),
+                word_ids=batch["word_ids"].to(self.device),
+                use_virtual_node=use_virtual_node,
+            )
+            
+            state = masking.StateBatch(
+                batch_size=len(batch["input_ids"]),
+                num_variables=batch["num_words"][0].item() + 1,
+                num_words=batch["num_words"][0].item(),
+                use_virtual_node=use_virtual_node,
+            )
+            
+            predicted_adjacency, _, _ = self.sample(word_embeddings, state, exp_temp=self.exp_temp, rand_coef=self.rand_coef)
+            gold_adjacency = batch["graph"][:, :state.num_variables, :state.num_variables].to(self.device),
+            
+            # Compare predicted and gold adjacency matrices
+            unlabeled_correct = (predicted_adjacency == gold_adjacency.to(torch.int32))
+            labeled_correct = unlabeled_correct # Placeholder for labeled accuracy; needs relation prediction
+
+            total_correct_unlabeled += unlabeled_correct.sum().item()
+            total_correct_labeled += labeled_correct.sum().item() # Placeholder
+            total_edges += gold_adjacency.sum().item()
+            
+        uas = total_correct_unlabeled / total_edges if total_edges > 0 else 0.0
+        las = total_correct_labeled / total_edges if total_edges > 0 else 0.0 # Placeholder
+        
+        self.model.train()
+        return uas, las
+
 
     def load_weights(self, filename):
         pass
