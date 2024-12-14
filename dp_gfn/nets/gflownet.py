@@ -19,14 +19,21 @@ class DPGFlowNet(nn.Module):
         # config.forward_head.head.output_sizes.insert(0, config.backbone.d_model * 2)
         config.backward_head.output_sizes.insert(0, self.hidden_dim)
 
+        # Initializer
         self.bert_model = AutoModel.from_pretrained(config.initializer.pretrained_path)
         if not config.initializer.trainable:
             for params in self.bert_model.parameters():
                 params.requires_grad = False
-
+        self.x2g = torch.nn.Linear(
+            in_features=self.model.hidden_dim, 
+            out_features=self.model.hidden_dim
+        ).to(self.device)   # Mapping the mean of nodes embeddings to create virtual node
         self.intermediate = nn.Linear(self.bert_model.config.hidden_size, self.hidden_dim)
+        
+        # Encoder 
         self.backbone = TransformerEncoder(**config.backbone)
-
+        
+        # Predictor Heads 
         self.mlp_dep = MLP(**config.forward_head.dep)
         # self.mlp_head = MLP(**config.forward_head.head)
         self.mlp_head = BiAffine(config.backbone.embed_dim, 1)
@@ -111,7 +118,7 @@ class DPGFlowNet(nn.Module):
 
         return logits
 
-    def init_state(self, input_ids, attention_mask, word_ids):
+    def init_state(self, input_ids, attention_mask, word_ids, use_virtual_node=False):
         config = self.config.initializer
 
         token_embeddings = self.bert_model(input_ids, attention_mask)["last_hidden_state"]
@@ -125,6 +132,9 @@ class DPGFlowNet(nn.Module):
         
         # Map to intermediate dimension
         word_embeddings = self.intermediate(word_embeddings)
+        if use_virtual_node:
+            graph_embeddings = self.x2g(word_embeddings.mean(axis=-2, keepdims=True))
+            word_embeddings = torch.concat([word_embeddings, graph_embeddings], axis=1)
 
         return word_embeddings
 
