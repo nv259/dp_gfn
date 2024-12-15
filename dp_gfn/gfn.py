@@ -472,7 +472,7 @@ class DPGFN:
             return None
         
 
-def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=1.0):
+def trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=5.0):
     error = log_Z + traj_log_pF - log_R - traj_log_pB
     loss = torch.nn.HuberLoss(delta=delta)(error, torch.zeros_like(error))
     logs = {"loss": loss.tolist(), "log_R": log_R.tolist(), "log_Z": log_Z.item()}
