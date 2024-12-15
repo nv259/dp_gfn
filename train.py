@@ -51,20 +51,20 @@ def main(config):
     with open("hydra_config.txt", "w") as f:
         f.write(OmegaConf.to_yaml(config))
 
-    # try:
-    val_loader, _ = get_dataloader(
-        path_to_conllu_file=config.train_path.replace("train", "dev"),
-        max_number_of_words=config.max_number_of_words,
-        # batch_size=config.algorithm.eval.batch_size,
-        batch_size=1,
-        num_workers=config.num_workers,
-        shuffle=False,
-        pre_tokenize=config.pre_tokenize
-    )
-    torch.save(val_loader, os.path.join(os.path.dirname(config.train_path), "val_loader.pt"))
-    # except:
-    #     val_loader = None
-    #     logging.warning("No validation data found")
+    try:
+        val_loader, _ = get_dataloader(
+            path_to_conllu_file=config.train_path.replace("train", "dev"),
+            max_number_of_words=config.max_number_of_words,
+            # batch_size=config.algorithm.eval.batch_size,
+            batch_size=1,
+            num_workers=config.num_workers,
+            shuffle=False,
+            pre_tokenize=config.pre_tokenize
+        )
+        torch.save(val_loader, os.path.join(os.path.dirname(config.train_path), "val_loader.pt"))
+    except:
+        val_loader = None
+        logging.warning("No validation data found")
 
     logging.info("Initializing Algorithm")
     algorithm = DPGFN(
