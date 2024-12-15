@@ -10,7 +10,7 @@ from tqdm import trange
 
 from dp_gfn.nets.gflownet import DPGFlowNet
 from dp_gfn.utils import masking, scores, io
-from dp_gfn.utils.misc import create_graph_relations, to_undirected
+from dp_gfn.utils.misc import create_graph_relations, to_undirected, post_processing, align_shape
 # from dp_gfn.utils.replay_buffer import ReplayBuffer
 
 try:
@@ -40,6 +40,7 @@ class DPGFN:
         self.dump_foldername = config.dump_foldername
         self.max_number_of_words = config.max_number_of_words
         self.use_virtual_node = config.use_virtual_node
+        self.post_processing = config.post_processing
 
         # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = torch.device(config.device)
@@ -190,10 +191,12 @@ class DPGFN:
                         use_virtual_node=self.use_virtual_node,
                     )
                     
-                    log_Z = self.model.logZ(
-                        batch["num_words"].to(torch.float32).to(self.device)
-                    )
-                    # log_Z = torch.tensor([4.6], device=self.device)
+                    if self.use_constant_Z: 
+                        log_Z = torch.tensor([4.6], device=self.device)
+                    else:
+                        log_Z = self.model.logZ(
+                            batch["num_words"].to(torch.float32).to(self.device)
+                        )
                     
                     state = masking.StateBatch(
                         self.batch_size,
@@ -243,15 +246,35 @@ class DPGFN:
                     rewards.append(logs["log_R"])
                     train_losses.append(logs["loss"])
                     log_Zs.append(logs["log_Z"])
-                    pbar.set_postfix(
-                        loss=f"{train_losses[-1]:.5f}",
-                        reward=f"{np.exp(logs['log_R']).mean():.6f}",
-                        Z=f"{np.exp(logs['log_Z']):.5f}",
-                    )
 
                     if iteration % self.eval_every_n == 0:
-                        rewards, log_Zs, train_losses = io.save_train_aux(
-                            save_folder, iteration, rewards, log_Zs, train_losses
+                        # rewards, log_Zs, train_losses = io.save_train_aux(
+                        #     save_folder, iteration, rewards, log_Zs, train_losses
+                        # )
+                        
+                        # val_loss = self.val_step(val_loader)
+                        # val_losses.append(val_loss)
+                        
+                        uas, las = self.evaluate(val_loader, use_virtual_node=self.use_virtual_node)
+                        
+                    pbar.set_postfix(
+                        loss=f"{train_losses[-1]:.5f}",
+                        reward=f"{np.exp(logs['log_R']).mean():.5f}",
+                        Z=f"{np.exp(logs['log_Z']):.5f}",
+                        # val_loss=f"{val_loss:.5f}",
+                        uas=f"{uas:.5f}",
+                        las=f"{las:.5f}",
+                    )
+                    
+                    if iteration % self.save_every_n == 0:
+                        torch.save(
+                            self.model.state_dict(),
+                            os.path.join(save_folder, "model", f"model_{iteration}.pt"),
+                        )
+                        
+                        torch.save(
+                            self.optimizer.state_dict(),
+                            os.path.join(save_folder, "model", f"optimizer_{iteration}.pt"),
                         )
                 
                 
@@ -360,16 +383,18 @@ class DPGFN:
             )
             
             state = masking.StateBatch(
-                batch_size=len(batch["input_ids"]),
+                batch_size=self.batch_size,
                 num_variables=batch["num_words"][0].item() + 1,
                 num_words=batch["num_words"][0].item(),
                 use_virtual_node=use_virtual_node,
             )
             
-            predicted_adjacency, _, _ = self.sample(word_embeddings, state, exp_temp=self.exp_temp, rand_coef=self.rand_coef)
-            gold_adjacency = batch["graph"][:, :state.num_variables, :state.num_variables].to(self.device),
+            predicted_adjacency, traj_log_pF, _ = self.sample(word_embeddings, state, exp_temp=self.exp_temp, rand_coef=self.rand_coef)
+            predicted_adjacency = post_processing(predicted_adjacency, traj_log_pF, self.device, self.post_processing, 0.5, batch['num_words'])
+            gold_adjacency = batch["graph"][:, :state.num_variables, :state.num_variables].to(self.device)
             
             # Compare predicted and gold adjacency matrices
+            predicted_adjacency, gold_adjacency = align_shape(predicted_adjacency, gold_adjacency)
             unlabeled_correct = (predicted_adjacency == gold_adjacency.to(torch.int32))
             labeled_correct = unlabeled_correct # Placeholder for labeled accuracy; needs relation prediction
 
