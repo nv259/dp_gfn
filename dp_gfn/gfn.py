@@ -41,6 +41,7 @@ class DPGFN:
         self.max_number_of_words = config.max_number_of_words
         self.use_virtual_node = config.use_virtual_node
         self.post_processing = config.post_processing
+        self.use_constant_Z = config.use_constant_Z
 
         # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = torch.device(config.device)
