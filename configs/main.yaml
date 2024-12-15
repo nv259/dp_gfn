@@ -94,18 +94,23 @@ algorithm:
 
         backward_policy: null   # fix uniform by default
         score_fn: null          # graph edit distance by default
+    
+    eval:
+        batch_size: 4
 
     reward_scale_factor: 10
     
-# train_path: ./data/ud-treebanks-v2.14/UD_English-EWT/en_ewt-ud-train.conllu
-train_path: ./sanity-dev.conllu
+train_path: ./data/ud-treebanks-v2.14/UD_English-EWT/en_ewt-ud-train.conllu
+# train_path: ./sanity-dev.conllu
 save_path: ./output/
 pre_tokenize: True
 dump_foldername: 'zero_exploration/'
 use_virtual_node: True
 batch_size: 4
 num_workers: 0
-max_number_of_words: 100    # equal to max_number of node in train mode
+max_number_of_words: 10    # equal to max_number of node in train mode
 seed: 42
 num_tags: 1
 device: cuda:0
+post_processing: best
+use_constant_Z: True
