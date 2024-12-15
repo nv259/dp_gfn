@@ -6,12 +6,12 @@ from jax import jit, vmap
 import torch
 
 
-def reward(predict, gold, graph_distance_fn):
+def reward(predict, gold, graph_distance_fn, reward_scale_factor=1.):
     N = min(predict.shape[1], gold.shape[1])
     predict = predict[:, :N, :N]
     gold = gold[:, :N, :N]
     
-    return ((1.0 - graph_distance_fn(predict, gold)) >= 0.99)
+    return ((1.0 - graph_distance_fn(predict, gold)) >= 0.99) * reward_scale_factor
 
 
 def unlabeled_graph_edit_distance(predict, gold):

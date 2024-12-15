@@ -47,7 +47,9 @@ class DPGFN:
         self.device = torch.device(config.device)
 
         config = config.algorithm
+        self.reward_scale_factor = config.reward_scale_factor
         self.max_steps = config.train.max_steps
+        self.n_grad_accumulation_steps = config.train.n_grad_accumulation_steps
         self.eval_every_n = config.train.eval_every_n
         self.save_every_n = config.train.save_every_n
         self.syn_batch_size = config.train.syn_batch_size
@@ -55,7 +57,7 @@ class DPGFN:
         self.exp_temp = config.train.exp_temp
         self.rand_coef = config.train.rand_coef
         self.p_init = config.train.p_init
-        self.reward_scale_factor = config.reward_scale_factor
+        
 
     def initialize_policy(self, config):
         config = config.train
@@ -179,6 +181,7 @@ class DPGFN:
         train_losses, val_losses = [], []
         log_Zs = []
         rewards = []
+        accumulated_gradients = None
 
         with trange(self.max_steps, desc="Training") as pbar:
             for iteration in pbar:
@@ -193,7 +196,7 @@ class DPGFN:
                     )
                     
                     if self.use_constant_Z: 
-                        log_Z = torch.tensor([4.6], device=self.device)
+                        log_Z = torch.log(torch.tensor([self.reward_scale_factor], device=self.device))
                     else:
                         log_Z = self.model.logZ(
                             batch["num_words"].to(torch.float32).to(self.device)
@@ -234,35 +237,39 @@ class DPGFN:
                             ),
                             batch["graph"].to(torch.bool).to(torch.float32).to(self.device),
                             scores.frobenius_norm_distance,
+                            self.reward_scale_factor
                         )
                         + 1e-9  # offset to prevent -inf from occurring
                     )
 
                     loss, logs = trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
-
-                    self.optimizer.zero_grad()
+                    loss = loss / self.n_grad_accumulation_steps
+                    
                     loss.backward()
-                    self.optimizer.step()
+                    
+                    if (iteration + 1) % self.n_grad_accumulation_steps == 0:
+                        self.optimizer.step()
+                        self.optimizer.zero_grad()
 
                     rewards.append(logs["log_R"])
                     train_losses.append(logs["loss"])
                     log_Zs.append(logs["log_Z"])
 
                     if iteration % self.eval_every_n == 0:
+                        uas, las = self.evaluate(val_loader, use_virtual_node=self.use_virtual_node)
                         # rewards, log_Zs, train_losses = io.save_train_aux(
                         #     save_folder, iteration, rewards, log_Zs, train_losses
                         # )
                         
-                        # val_loss = self.val_step(val_loader)
-                        # val_losses.append(val_loss)
+                        val_loss = self.val_step(val_loader)
+                        val_losses.append(val_loss)
                         
-                        uas, las = self.evaluate(val_loader, use_virtual_node=self.use_virtual_node)
                         
                     pbar.set_postfix(
                         loss=f"{train_losses[-1]:.5f}",
                         reward=f"{np.exp(logs['log_R']).mean():.5f}",
                         Z=f"{np.exp(logs['log_Z']):.5f}",
-                        # val_loss=f"{val_loss:.5f}",
+                        val_loss=f"{val_loss:.5f}",
                         uas=f"{uas:.5f}",
                         las=f"{las:.5f}",
                     )
@@ -347,6 +354,7 @@ class DPGFN:
                     ),
                     batch["graph"].to(torch.bool).to(torch.float32).to(self.device),
                     scores.frobenius_norm_distance,
+                    self.reward_scale_factor
                 )
                 + 1e-9
             )
