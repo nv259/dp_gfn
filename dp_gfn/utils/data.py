@@ -141,12 +141,7 @@ class BaseDataset(Dataset):
                 words_list = [word_dict[idx] for idx in range(1, len(word_dict) + 1)]
                 joined_words = " ".join(words_list)
 
-                if (
-                    len(words_list) > max_number_of_words - 1
-                    and "train" in path_to_conllu_file
-                ):
-                    continue
-                elif len(words_list) > max_number_of_words:
+                if len(words_list) > max_number_of_words:
                     continue
 
                 text = (
@@ -154,13 +149,13 @@ class BaseDataset(Dataset):
                     if not debug
                     else joined_words
                 )
-
+                
                 sample = {
                     "text": text,
                     "edges": edges_list,
                     "num_words": len(words_list),
                 }
-
+                
                 if self.pre_tokenize:
                     tokens = self.tokenizer(
                         text,
@@ -180,10 +175,13 @@ class BaseDataset(Dataset):
                 self.data.append(sample)
                 self.max_num_nodes = max(self.max_num_nodes, len(words_list))
 
-        if "train" in path_to_conllu_file:
-            self.max_num_nodes = min(self.max_num_nodes, max_number_of_words) + 1
-        else:
-            self.max_num_nodes = max_number_of_words
+        self.max_num_nodes = min(self.max_num_nodes, max_number_of_words) + 1
+            
+        for item in self.data:
+            item["graph"] = adjacency_matrix_from_edges_list(
+                item["edges"], num_variables=self.max_num_nodes
+            )
+            
 
     def __len__(self):
         return len(self.data)
@@ -191,16 +189,16 @@ class BaseDataset(Dataset):
     def __getitem__(self, index):
         item = self.data[index]
 
-        if self.store_nx_graph:
-            G = nx.DiGraph()
-            for source, target, tag in item["edges"]:
-                G.add_edge(source, target, tag=tag)
-        else:
-            G = adjacency_matrix_from_edges_list(
-                item["edges"], num_variables=self.max_num_nodes
-            )
+        # if self.store_nx_graph:
+        #     G = nx.DiGraph()
+        #     for source, target, tag in item["edges"]:
+        #         G.add_edge(source, target, tag=tag)
+        # else:
+        #     G = adjacency_matrix_from_edges_list(
+        #         item["edges"], num_variables=self.max_num_nodes
+        #     )
 
-        item = dict(item, **{"graph": G})
+        # item = dict(item, **{"graph": G})
 
         if not self.return_edges:
             item.pop("edges", None)
