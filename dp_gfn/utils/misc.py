@@ -70,3 +70,71 @@ def create_graph_relations(graphs, num_tags, device):
 def to_undirected(adjacency_matrices, device=None):
     undirected_adj = adjacency_matrices | adjacency_matrices.transpose(0, 2, 1)
     return undirected_adj if device is None else torch.tensor(undirected_adj, device=device)
+
+
+def post_processing(predicted_adjacency, traj_log_pF, device, method="best", threshold=0.5, num_edges=None):
+    """
+    Processes a batch of predicted adjacency matrices to produce a single final prediction with `num_edges`.
+
+    Args:
+        predicted_adjacency (torch.Tensor): Batch of predicted adjacency matrices (B, N, N).
+        traj_log_pF (torch.Tensor): Trajectory log probabilities for each sample in the batch (B,).
+        device (torch.device): Device where tensors reside.
+        method (str): Post-processing method. Options: "best", "hard_voting", "probability_voting".
+            Defaults to "best".
+        threshold (float): Threshold for probability voting. Defaults to 0.5.
+        num_edges (int): The exact number of edges required in the final output. If None, uses the number of edges in the gold standard (N).
+                           If provided, and the chosen method doesn't result in exactly num_edges, the function will modify the output to ensure this constraint.
+
+    Returns:
+        torch.Tensor: Final predicted adjacency matrix (1, N, N) with exactly `num_edges` edges.
+    """
+    predicted_adjacency = torch.tensor(predicted_adjacency)
+    
+    if method == "best":
+        best_index = traj_log_pF.argmax().item()
+        final_predicted_adjacency = predicted_adjacency[best_index].unsqueeze(0)  # Add batch dimension
+    elif method == "hard_voting":
+        final_predicted_adjacency = (predicted_adjacency.sum(dim=0) > (len(predicted_adjacency) / 2)).float().unsqueeze(0)
+    elif method == "probability_voting":  # Assumes predicted_adjacency are edge probabilities
+        avg_probabilities = predicted_adjacency.mean(dim=0)
+        final_predicted_adjacency = (avg_probabilities > threshold).float().unsqueeze(0)
+    else:
+        raise ValueError(f"Invalid post-processing method: {method}")
+
+    final_predicted_adjacency = final_predicted_adjacency.to(device)
+
+
+    if num_edges is not None:
+        # Ensure exactly num_edges are present 
+        current_edges = final_predicted_adjacency.to(torch.bool).sum().item()
+
+        if current_edges != num_edges:
+            diff = num_edges - current_edges
+
+            if diff > 0:  # Add edges
+                # Find top probabilities among unconnected edges and connect them
+                sorted_probs = torch.sort(avg_probabilities.view(-1), descending=True)
+                for i in range(int(diff)):
+                    idx = sorted_probs.indices[i] // avg_probabilities.size()[0]
+                    idy = sorted_probs.indices[i] % avg_probabilities.size()[0]
+                    
+                    final_predicted_adjacency[0][idx, idy] = 1
+                    
+            elif diff < 0:  # Remove edges
+
+                sorted_probs = torch.sort(avg_probabilities.view(-1))
+                for i in range(int(abs(diff))):
+                    idx = sorted_probs.indices[i] // avg_probabilities.size()[0]
+                    idy = sorted_probs.indices[i] % avg_probabilities.size()[0]
+                    final_predicted_adjacency[0][idx, idy] = 0
+                    
+    return final_predicted_adjacency
+
+
+def align_shape(A, B):
+    min_dim = min(A.shape[-1], B.shape[-1])
+    A = A[:, :min_dim, :min_dim]
+    B = B[:, :min_dim, :min_dim]
+    
+    return A, B
