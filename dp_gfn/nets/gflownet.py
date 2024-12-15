@@ -24,10 +24,7 @@ class DPGFlowNet(nn.Module):
         if not config.initializer.trainable:
             for params in self.bert_model.parameters():
                 params.requires_grad = False
-        self.x2g = torch.nn.Linear(
-            in_features=self.model.hidden_dim, 
-            out_features=self.model.hidden_dim
-        ).to(self.device)   # Mapping the mean of nodes embeddings to create virtual node
+        self.x2g = torch.nn.Linear(in_features=self.hidden_dim, out_features=self.hidden_dim)  
         self.intermediate = nn.Linear(self.bert_model.config.hidden_size, self.hidden_dim)
         
         # Encoder 
