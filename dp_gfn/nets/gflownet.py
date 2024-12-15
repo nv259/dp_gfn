@@ -31,6 +31,9 @@ class DPGFlowNet(nn.Module):
         self.backbone = TransformerEncoder(**config.backbone)
         
         # Predictor Heads 
+        config.backbone.n_layers = 2
+        self.forward_encoder = TransformerEncoder(**config.backbone)
+        self.backward_encoder = TransformerEncoder(**config.backbone)
         self.mlp_dep = MLP(**config.forward_head.dep)
         # self.mlp_head = MLP(**config.forward_head.head)
         self.mlp_head = BiAffine(config.backbone.embed_dim, 1)
@@ -40,8 +43,11 @@ class DPGFlowNet(nn.Module):
     def forward(self, node_embeddings, graph_relations, mask, attn_mask, actions=None, exp_temp=1., rand_coef=0.):
         hidden = self.backbone(node_embeddings, graph_relations, attn_mask) # TODO: attention mask
 
-        actions, log_pF = self.forward_policy(hidden, mask, actions, exp_temp, rand_coef)
-        backward_logits = self.backward_logits(hidden, ~torch.any(mask, axis=1))    # TODO: This leaves undue actions valid
+        forward_hidden = self.forward_encoder(hidden, graph_relations, attn_mask)
+        actions, log_pF = self.forward_policy(forward_hidden, mask, actions, exp_temp, rand_coef)
+        
+        backward_hidden = self.backward_encoder(hidden, graph_relations, attn_mask)
+        backward_logits = self.backward_logits(backward_hidden, ~torch.any(mask, axis=1))    # TODO: This leaves undue actions valid
 
         return actions, log_pF, backward_logits
     
