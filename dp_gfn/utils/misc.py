@@ -95,7 +95,8 @@ def post_processing(predicted_adjacency, traj_log_pF, device, method="best", thr
         best_index = traj_log_pF.argmax().item()
         final_predicted_adjacency = predicted_adjacency[best_index].unsqueeze(0)  # Add batch dimension
     elif method == "hard_voting":
-        final_predicted_adjacency = (predicted_adjacency.sum(dim=0) > (len(predicted_adjacency) / 2)).float().unsqueeze(0)
+        vote_counts = predicted_adjacency.sum(dim=0)
+        final_predicted_adjacency = (vote_counts > (len(predicted_adjacency) / 2)).float().unsqueeze(0)
     elif method == "probability_voting":  # Assumes predicted_adjacency are edge probabilities
         avg_probabilities = predicted_adjacency.mean(dim=0)
         final_predicted_adjacency = (avg_probabilities > threshold).float().unsqueeze(0)
@@ -112,22 +113,35 @@ def post_processing(predicted_adjacency, traj_log_pF, device, method="best", thr
         if current_edges != num_edges:
             diff = num_edges - current_edges
 
-            if diff > 0:  # Add edges
-                # Find top probabilities among unconnected edges and connect them
-                sorted_probs = torch.sort(avg_probabilities.view(-1), descending=True)
-                for i in range(int(diff)):
-                    idx = sorted_probs.indices[i] // avg_probabilities.size()[0]
-                    idy = sorted_probs.indices[i] % avg_probabilities.size()[0]
+            if diff != 0:
+                if method == "hard_voting":
+                    sorted_votes, indices = torch.sort(vote_counts.view(-1), descending=True)
+                
+                    for i in range(int(abs(diff))):
+                        idx = indices[i] // vote_counts.size()[0]
+                        idy = indices[i] % vote_counts.size()[1]
+                        
+                        if diff > 0:    # Add edges 
+                            final_predicted_adjacency[0][idx, idy] = 1
+                        else:           # Remove edges
+                            final_predicted_adjacency[0][idx, idy] = 0
+                else:
+                    print("Not yet implemented") 
+            #     # Find top probabilities among unconnected edges and connect them
+            #     sorted_probs = torch.sort(avg_probabilities.view(-1), descending=True)
+            #     for i in range(int(diff)):
+            #         idx = sorted_probs.indices[i] // avg_probabilities.size()[0]
+            #         idy = sorted_probs.indices[i] % avg_probabilities.size()[0]
                     
-                    final_predicted_adjacency[0][idx, idy] = 1
+            #         final_predicted_adjacency[0][idx, idy] = 1
                     
-            elif diff < 0:  # Remove edges
+            # elif diff < 0:  # Remove edges
 
-                sorted_probs = torch.sort(avg_probabilities.view(-1))
-                for i in range(int(abs(diff))):
-                    idx = sorted_probs.indices[i] // avg_probabilities.size()[0]
-                    idy = sorted_probs.indices[i] % avg_probabilities.size()[0]
-                    final_predicted_adjacency[0][idx, idy] = 0
+            #     sorted_probs = torch.sort(avg_probabilities.view(-1))
+            #     for i in range(int(abs(diff))):
+            #         idx = sorted_probs.indices[i] // avg_probabilities.size()[0]
+            #         idy = sorted_probs.indices[i] % avg_probabilities.size()[0]
+            #         final_predicted_adjacency[0][idx, idy] = 0
                     
     return final_predicted_adjacency
 
