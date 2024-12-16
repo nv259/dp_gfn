@@ -182,7 +182,6 @@ class DPGFN:
         train_losses, val_losses = [], []
         log_Zs = []
         rewards = []
-        accumulated_gradients = None
 
         with trange(self.max_steps, desc="Training") as pbar:
             for iteration in pbar:
@@ -261,16 +260,16 @@ class DPGFN:
                         # rewards, log_Zs, train_losses = io.save_train_aux(
                         #     save_folder, iteration, rewards, log_Zs, train_losses
                         # )
-                        
-                        val_loss = self.val_step(val_loader)
-                        val_losses.append(val_loss)
+                        logging.info(f"uas: {uas}, las: {las}") 
+                        # val_loss = self.val_step(val_loader)
+                        # val_losses.append(val_loss)
                         
                         
                     pbar.set_postfix(
                         loss=f"{train_losses[-1]:.5f}",
                         reward=f"{np.exp(logs['log_R']).mean():.5f}",
                         Z=f"{np.exp(logs['log_Z']):.5f}",
-                        val_loss=f"{val_loss:.5f}",
+                        # val_loss=f"{val_loss:.5f}",
                         uas=f"{uas:.5f}",
                         las=f"{las:.5f}",
                     )
