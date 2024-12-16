@@ -17,7 +17,7 @@ model:
         max_word_length: ${max_number_of_words}
 
     backbone:
-        n_layers: 4
+        n_layers: 5
         embed_dim: 256
         n_heads: 4
         num_relations: 3
@@ -63,9 +63,9 @@ algorithm:
         exp_temp: 1.0
         rand_coef: 0.0
         p_init: 1.0
-        n_grad_accumulation_steps: 4    # not yet implemented
-        syn_batch_size: 2
-        max_steps: 100000
+        n_grad_accumulation_steps: 16
+        syn_batch_size: 16
+        max_steps: 1000000
         eval_on_train: False
         exploration_rate: 0.05
         clip_grad: 10   # not yet implemented
@@ -89,14 +89,14 @@ algorithm:
             transition_steps: 10000
             transition_begin: 5000
 
-        eval_every_n: 1000
-        save_every_n: 5000
+        eval_every_n: 10000
+        save_every_n: 10000
 
-        backward_policy: null   # fix uniform by default
+        backward_policy: null
         score_fn: null          # graph edit distance by default
     
     eval:
-        batch_size: 4
+        batch_size: 32
 
     reward_scale_factor: 10
     
@@ -106,9 +106,9 @@ save_path: ./output/
 pre_tokenize: True
 dump_foldername: 'zero_exploration/'
 use_virtual_node: True
-batch_size: 4
+batch_size: 64
 num_workers: 0
-max_number_of_words: 10    # equal to max_number of node in train mode
+max_number_of_words: 20    # equal to max_number of node in train mode
 seed: 42
 num_tags: 1
 device: cuda:0
