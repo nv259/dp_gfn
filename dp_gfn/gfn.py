@@ -42,6 +42,7 @@ class DPGFN:
         self.use_virtual_node = config.use_virtual_node
         self.post_processing = config.post_processing
         self.use_constant_Z = config.use_constant_Z
+        self.delta = config.delta
 
         # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.device = torch.device(config.device)
@@ -242,7 +243,7 @@ class DPGFN:
                         + 1e-9  # offset to prevent -inf from occurring
                     )
 
-                    loss, logs = trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
+                    loss, logs = trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, delta=self.delta)
                     loss = loss / self.n_grad_accumulation_steps
                     
                     loss.backward()
@@ -358,7 +359,7 @@ class DPGFN:
                 )
                 + 1e-9
             )
-            loss, _ = trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB)
+            loss, _ = trajectory_balance_loss(log_Z, traj_log_pF, log_R, traj_log_pB, self.delta)
 
             total_loss += loss.item() * len(batch)  # Weighted average for different batch sizes
             total_samples += len(batch)

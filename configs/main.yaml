@@ -114,3 +114,7 @@ num_tags: 1
 device: cuda:0
 post_processing: best
 use_constant_Z: True
+<<<<<<< HEAD
+=======
+delta: 1.
+>>>>>>> f5b48b076f40b4daad00773cb63d055663d1bba7
