@@ -72,7 +72,7 @@ def to_undirected(adjacency_matrices, device=None):
     return undirected_adj if device is None else torch.tensor(undirected_adj, device=device)
 
 
-def post_processing(predicted_adjacency, traj_log_pF, device, method="best", threshold=0.5, num_edges=None):
+def post_processing(predicted_adjacency, traj_log_pF, device, method="best", threshold=0.5, num_edges=None, x=None, y=None):
     """
     Processes a batch of predicted adjacency matrices to produce a single final prediction with `num_edges`.
 
@@ -90,6 +90,9 @@ def post_processing(predicted_adjacency, traj_log_pF, device, method="best", thr
         torch.Tensor: Final predicted adjacency matrix (1, N, N) with exactly `num_edges` edges.
     """
     predicted_adjacency = torch.tensor(predicted_adjacency)
+     
+    predicted_adjacency = torch.cat([torch.tensor(predicted_adjacency, device=device), x.to(device)], dim=0)
+    traj_log_pF = torch.cat([traj_log_pF, y.to(device)], dim=0)
     
     if method == "best":
         best_index = traj_log_pF.argmax().item()
@@ -104,7 +107,6 @@ def post_processing(predicted_adjacency, traj_log_pF, device, method="best", thr
         raise ValueError(f"Invalid post-processing method: {method}")
 
     final_predicted_adjacency = final_predicted_adjacency.to(device)
-
 
     if num_edges is not None:
         # Ensure exactly num_edges are present 

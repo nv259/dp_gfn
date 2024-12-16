@@ -399,7 +399,12 @@ class DPGFN:
             )
             
             predicted_adjacency, traj_log_pF, _ = self.sample(word_embeddings, state, exp_temp=self.exp_temp, rand_coef=self.rand_coef)
-            predicted_adjacency = post_processing(predicted_adjacency, traj_log_pF, self.device, self.post_processing, 0.5, batch['num_words'])
+            state.reset(self.syn_batch_size) 
+            graph_squeeze = batch["graph"][:, :state.num_words + 1, :state.num_words + 1].to(torch.bool)
+            graph_squeeze = F.pad(graph_squeeze, (0, 1, 0, 1), value=False).expand(self.syn_batch_size, -1, -1)
+            terminal_states = create_graph_relations(graph_squeeze, self.num_tags, self.device)
+            traj_log_pF_aux, _ = self.synthesize_trajectory(word_embeddings, state, terminal_states, graph_squeeze, self.exp_temp, self.rand_coef)
+            predicted_adjacency = post_processing(predicted_adjacency, traj_log_pF, self.device, self.post_processing, 0.5, batch['num_words'], graph_squeeze, traj_log_pF_aux)
             gold_adjacency = batch["graph"][:, :state.num_variables, :state.num_variables].to(self.device)
             
             # Compare predicted and gold adjacency matrices
